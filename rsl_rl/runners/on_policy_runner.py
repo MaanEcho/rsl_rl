@@ -498,6 +498,7 @@ class OnPolicyRunner:
         """Configure multi-gpu training."""
         # check if distributed training is enabled
         self.gpu_world_size = int(os.getenv("WORLD_SIZE", "1"))
+        # 从环境变量WORLD_SIZE中获取当前分布式环境中参与计算的总进程数，默认值是1
         self.is_distributed = self.gpu_world_size > 1
 
         # if not distributed training, set local and global rank to 0 and return
@@ -509,7 +510,9 @@ class OnPolicyRunner:
 
         # get rank and world size
         self.gpu_local_rank = int(os.getenv("LOCAL_RANK", "0"))
+        # LOCAL_RANK：当前节点内的GPU编号(从0开始)
         self.gpu_global_rank = int(os.getenv("RANK", "0"))
+        # RANK / GLOBAL_RANK：全局进程编号(跨所有节点)
 
         # make a configuration dictionary
         self.multi_gpu_cfg = {
@@ -523,6 +526,7 @@ class OnPolicyRunner:
             raise ValueError(
                 f"Device '{self.device}' does not match expected device for local rank '{self.gpu_local_rank}'."
             )
+        # 设备一致性验证，确保当前进程的local rank与用户指定的设备一致
         # validate multi-gpu configuration
         if self.gpu_local_rank >= self.gpu_world_size:
             raise ValueError(
@@ -532,8 +536,11 @@ class OnPolicyRunner:
             raise ValueError(
                 f"Global rank '{self.gpu_global_rank}' is greater than or equal to world size '{self.gpu_world_size}'."
             )
+        # 验证rank值的合理性(不能超出总进程数)
 
         # initialize torch distributed
         torch.distributed.init_process_group(backend="nccl", rank=self.gpu_global_rank, world_size=self.gpu_world_size)
+        # 使用NCCL后端初始化PyTorch分布式进程组
         # set device to the local rank
         torch.cuda.set_device(self.gpu_local_rank)
+        # 设置当前进程使用的CUDA设备
