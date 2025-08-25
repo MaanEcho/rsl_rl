@@ -84,20 +84,28 @@ def unpad_trajectories(trajectories, masks):
 
 
 def store_code_state(logdir, repositories) -> list:
+    """为指定的Git仓库生成并存储代码状态信息(包括状态和差异)"""
     git_log_dir = os.path.join(logdir, "git")
     os.makedirs(git_log_dir, exist_ok=True)
     file_paths = []
     for repository_file_path in repositories:
         try:
             repo = git.Repo(repository_file_path, search_parent_directories=True)
+            # git.Repo()是GitPython库(一个操作Git仓库的Python库)的核心类，用于实例化一个Git仓库对象
+            # search_parent_directories=True: 如果指定路径不是Git仓库根目录，会自动向上查找父目录，直到找到包含.git文件夹的仓库根目录
             t = repo.head.commit.tree
+            # repo.head: 表示仓库当前的HEAD指针(通常指向当前分支的最新提交)
+            # repo.head.commit: 获取HEAD指针指向的具体提交对象(commit object)
+            # repo.head.commit.tree: 获取该提交对应的文件树对象(tree object)，包含了该提交版本中所有文件和目录的结构信息
         except Exception:
             print(f"Could not find git repository in {repository_file_path}. Skipping.")
             # skip if not a git repository
             continue
         # get the name of the repository
         repo_name = pathlib.Path(repo.working_dir).name
+        # repo.working_dir 获取仓库的工作目录路径，通过 pathlib 提取仓库名称
         diff_file_name = os.path.join(git_log_dir, f"{repo_name}.diff")
+        # 生成存储文件的路径：git_log_dir/仓库名称.diff
         # check if the diff file already exists
         if os.path.isfile(diff_file_name):
             continue
@@ -106,6 +114,7 @@ def store_code_state(logdir, repositories) -> list:
         with open(diff_file_name, "x", encoding="utf-8") as f:
             content = f"--- git status ---\n{repo.git.status()} \n\n\n--- git diff ---\n{repo.git.diff(t)}"
             f.write(content)
+        # 以独占创建模式("x")打开文件(确保不会覆盖已有文件)
         # add the file path to the list of files to be uploaded
         file_paths.append(diff_file_name)
     return file_paths
@@ -127,6 +136,7 @@ def string_to_callable(name: str) -> Callable:
     try:
         mod_name, attr_name = name.split(":")
         mod = importlib.import_module(mod_name)
+        # 动态导入模块，等价于import mod_name
         callable_object = getattr(mod, attr_name)
         # check if attribute is callable
         if callable(callable_object):

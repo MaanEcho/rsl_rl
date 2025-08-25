@@ -77,6 +77,7 @@ class OnPolicyRunner:
         if "rnd_cfg" in self.alg_cfg and self.alg_cfg["rnd_cfg"] is not None:
             # check if rnd gated state is present
             rnd_state = extras["observations"].get("rnd_state")
+            # rnd_state: tensor
             if rnd_state is None:
                 raise ValueError("Observations for the key 'rnd_state' not found in infos['observations'].")
             # get dimension of rnd gated state
@@ -84,7 +85,7 @@ class OnPolicyRunner:
             # add rnd gated state to config
             self.alg_cfg["rnd_cfg"]["num_states"] = num_rnd_state
             # scale down the rnd weight with timestep (similar to how rewards are scaled down in legged_gym envs)
-            self.alg_cfg["rnd_cfg"]["weight"] *= env.unwrapped.step_dt
+            self.alg_cfg["rnd_cfg"]["weight"] *= env.unwrapped.step_dt  # env.unwrapped.step_dt: RL控制步长(单位：秒)
 
         # if using symmetry then pass the environment config object
         if "symmetry_cfg" in self.alg_cfg and self.alg_cfg["symmetry_cfg"] is not None:
@@ -130,6 +131,9 @@ class OnPolicyRunner:
         self.tot_time = 0
         self.current_learning_iteration = 0
         self.git_status_repos = [rsl_rl.__file__]
+        # __file__：Python内置属性，返回模块文件的绝对路径
+        # self.git_status_repos = ['/path/to/rsl_rl/__init__.py']
+        # self.git_status_repos初始化了一个用于Git版本控制追踪的仓库列表，用于在训练开始时记录代码状态
 
     def learn(self, num_learning_iterations: int, init_at_random_ep_len: bool = False):  # noqa: C901
         # initialize writer
@@ -212,6 +216,7 @@ class OnPolicyRunner:
                         privileged_obs = self.privileged_obs_normalizer(
                             infos["observations"][self.privileged_obs_type].to(self.device)
                         )
+                        # 特权观测保存在infos["observations"][self.privileged_obs_type]中
                     else:
                         privileged_obs = obs
 

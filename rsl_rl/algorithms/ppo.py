@@ -152,6 +152,7 @@ class PPO:
     def process_env_step(self, rewards, dones, infos):
         # Record the rewards and dones
         # Note: we clone here because later on we bootstrap the rewards based on timeouts
+        # 使用clone()是为了防止后续的奖励bootstrap操作修改原始传入的rewards
         self.transition.rewards = rewards.clone()
         self.transition.dones = dones
 
@@ -282,6 +283,9 @@ class PPO:
                     # Reduce the KL divergence across all GPUs
                     if self.is_multi_gpu:
                         torch.distributed.all_reduce(kl_mean, op=torch.distributed.ReduceOp.SUM)
+                        # all_reduce: 所有GPU参与的归约操作
+                        # 归约操作: 将多个元素(或多个进程中的数据)通过某种特定规则合并为一个结果的操作
+                        # ReduceOp.SUM: 将所有GPU上的kl_mean值相加
                         kl_mean /= self.gpu_world_size
 
                     # Update the learning rate
@@ -297,7 +301,9 @@ class PPO:
                     # Update the learning rate for all GPUs
                     if self.is_multi_gpu:
                         lr_tensor = torch.tensor(self.learning_rate, device=self.device)
+                        # 将标量学习率转换为张量，以满足torch.distributed.broadcast()的要求
                         torch.distributed.broadcast(lr_tensor, src=0)
+                        # 将主GPU(RANK / GLOBAL_RANK=0)的学习率广播到所有其他GPU
                         self.learning_rate = lr_tensor.item()
 
                     # Update the learning rate for all parameter groups
@@ -440,6 +446,9 @@ class PPO:
             model_params.append(self.rnd.predictor.state_dict())
         # broadcast the model parameters
         torch.distributed.broadcast_object_list(model_params, src=0)
+        # src=0：指定RANK / GLOBAL_RANK=0的GPU作为参数源(主GPU)
+        # 将model_params列表广播到所有其他GPU
+        # 广播后，所有GPU都会收到相同的参数副本
         # load the model parameters on all GPUs from source GPU
         self.policy.load_state_dict(model_params[0])
         if self.rnd:
@@ -454,6 +463,7 @@ class PPO:
         grads = [param.grad.view(-1) for param in self.policy.parameters() if param.grad is not None]
         if self.rnd:
             grads += [param.grad.view(-1) for param in self.rnd.parameters() if param.grad is not None]
+        # param.grad.view(-1): 将每个参数的梯度张量展平为一维张量，便于后续的归约操作
         all_grads = torch.cat(grads)
 
         # Average the gradients across all GPUs
@@ -470,7 +480,11 @@ class PPO:
         for param in all_params:
             if param.grad is not None:
                 numel = param.numel()
+                # 获取参数的元素个数
                 # copy data back from shared buffer
                 param.grad.data.copy_(all_grads[offset : offset + numel].view_as(param.grad.data))
+                # all_grads[offset : offset + numel]: 从平均梯度中提取对应参数的部分
+                # view_as(param.grad.data): 重新整形为原始参数的形状
+                # param.grad.data.copy_(): 将平均梯度复制回参数的梯度
                 # update the offset for the next parameter
                 offset += numel
