@@ -19,7 +19,7 @@ class WandbSummaryWriter(SummaryWriter):
     """Summary writer for Weights and Biases."""
 
     def __init__(self, log_dir: str, flush_secs: int, cfg: dict) -> None:
-        super().__init__(log_dir, flush_secs)
+        super().__init__(log_dir=log_dir, flush_secs=flush_secs)
 
         # Get the run name
         run_name = os.path.split(log_dir)[-1]
@@ -64,7 +64,8 @@ class WandbSummaryWriter(SummaryWriter):
         )
         wandb.log({tag: scalar_value}, step=global_step)
 
-    def stop(self) -> None:
+    def close(self) -> None:
+        super().close()
         wandb.finish()
 
     def save_model(self, model_path: str, it: int) -> None:

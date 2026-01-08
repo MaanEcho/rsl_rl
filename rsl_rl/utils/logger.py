@@ -64,7 +64,7 @@ class Logger:
         self._store_code_state()
 
         # Log configuration
-        if self.writer and not self.disable_logs and self.logger_type in ["wandb", "neptune"]:
+        if self.writer and not self.disable_logs and self.logger_type in ["neptune", "wandb", "swanlab"]:
             self.writer.store_config(env_cfg, self.cfg)
 
     def process_env_step(
@@ -234,7 +234,7 @@ class Logger:
             self.writer.save_model(path, it)
 
     def _prepare_logging_writer(self) -> None:
-        """Prepare the logging writer, which can be either Tensorboard, W&B or Neptune."""
+        """Prepare the logging writer, which can be either Tensorboard, Neptune, W&B or SwanLab."""
         if self.log_dir is not None and not self.disable_logs:
             self.logger_type = self.cfg.get("logger", "tensorboard")
             self.logger_type = self.logger_type.lower()
@@ -247,12 +247,16 @@ class Logger:
                 from rsl_rl.utils.wandb_utils import WandbSummaryWriter
 
                 self.writer = WandbSummaryWriter(log_dir=self.log_dir, flush_secs=10, cfg=self.cfg)
+            elif self.logger_type == "swanlab":
+                from rsl_rl.utils.swanlab_utils import SwanlabSummaryWriter
+
+                self.writer = SwanlabSummaryWriter(log_dir=self.log_dir, flush_secs=10, cfg=self.cfg)
             elif self.logger_type == "tensorboard":
                 from torch.utils.tensorboard import SummaryWriter
 
                 self.writer = SummaryWriter(log_dir=self.log_dir, flush_secs=10)
             else:
-                raise ValueError("Logger type not found. Please choose 'wandb', 'neptune', or 'tensorboard'.")
+                raise ValueError("Logger type not found. Please choose 'neptune', 'wandb', 'swanlab', or 'tensorboard'.")
         else:
             self.writer = None
 
@@ -285,6 +289,6 @@ class Logger:
                 file_paths.append(diff_file_name)
 
             # Upload diff files to external logging services
-            if self.writer and self.logger_type in ["wandb", "neptune"] and file_paths:
+            if self.writer and self.logger_type in ["neptune", "wandb"] and file_paths:
                 for path in file_paths:
                     self.writer.save_file(path)

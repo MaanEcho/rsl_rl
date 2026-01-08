@@ -19,7 +19,7 @@ class NeptuneSummaryWriter(SummaryWriter):
     """Summary writer for Neptune."""
 
     def __init__(self, log_dir: str, flush_secs: int, cfg: dict) -> None:
-        super().__init__(log_dir, flush_secs)
+        super().__init__(log_dir=log_dir, flush_secs=flush_secs)
 
         # Get the run name
         run_name = os.path.split(log_dir)[-1]
@@ -79,7 +79,8 @@ class NeptuneSummaryWriter(SummaryWriter):
         )
         self.run[self._map_path(tag)].log(scalar_value, step=global_step)
 
-    def stop(self) -> None:
+    def close(self) -> None:
+        super().close()
         self.run.stop()
 
     def save_model(self, model_path: str, it: int) -> None:
