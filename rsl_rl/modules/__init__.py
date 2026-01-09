@@ -13,6 +13,8 @@ from .student_teacher import StudentTeacher
 from .student_teacher_recurrent import StudentTeacherRecurrent
 from .symmetry import resolve_symmetry_config
 
+from .DreamWaQ.actor_critic_DreamWaQ import ActorCriticDreamWaQ
+
 __all__ = [
     "ActorCritic",
     "ActorCriticCNN",
@@ -22,4 +24,5 @@ __all__ = [
     "StudentTeacherRecurrent",
     "resolve_rnd_config",
     "resolve_symmetry_config",
+    "ActorCriticDreamWaQ",
 ]

@@ -7,4 +7,6 @@
 
 from .rollout_storage import RolloutStorage
 
-__all__ = ["RolloutStorage"]
+from .DreamWaQ.rollout_storage_DreamWaQ import RolloutStorageDreamWaQ
+
+__all__ = ["RolloutStorage", "RolloutStorageDreamWaQ"]
