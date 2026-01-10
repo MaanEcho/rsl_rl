@@ -169,13 +169,13 @@ class ActorCriticDreamWaQ(nn.Module):
         # Create distribution
         self.distribution = Normal(mean, std)
 
-    def act(self, obs: TensorDict, bootstrap: bool, stage: Literal["rollout", "update"], **kwargs: dict[str, Any]) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def act(self, obs: TensorDict, bootstrap: bool, stage: Literal["rollout", "update"], **kwargs: dict[str, Any]) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         curr_obs, history_obs = self.get_actor_obs(obs, "all")
         curr_obs_normalized = self.actor_obs_normalizer(curr_obs)
         history_obs_normalized = self.actor_obs_normalizer(history_obs.reshape(-1, curr_obs.shape[-1])).reshape(curr_obs.shape[0], -1)
-        encode_vel, encode_context, context_mean, context_logvar = self.cenet.encode(history_obs_normalized)
+        encode_lin_vel, encode_context, context_mean, context_logvar = self.cenet.encode(history_obs_normalized)
         if bootstrap:
-            lin_vel_normalized = self.actor_lin_vel_normalizer(encode_vel)
+            lin_vel_normalized = self.actor_lin_vel_normalizer(encode_lin_vel)
         else:
             lin_vel = obs["privileged"][:, :3]
             lin_vel_normalized = self.actor_lin_vel_normalizer(lin_vel)
@@ -184,7 +184,7 @@ class ActorCriticDreamWaQ(nn.Module):
         if stage == "rollout":
             return self.distribution.sample()
         elif stage == "update":
-            return encode_vel, encode_context, context_mean, context_logvar
+            return encode_lin_vel, encode_context, context_mean, context_logvar
         else:
             raise ValueError(f"Unknown stage: {stage}. Please choose 'rollout' or 'update'")
 
@@ -192,9 +192,9 @@ class ActorCriticDreamWaQ(nn.Module):
         curr_obs, history_obs = self.get_actor_obs(obs, "all")
         curr_obs_normalized = self.actor_obs_normalizer(curr_obs)
         history_obs_normalized = self.actor_obs_normalizer(history_obs.reshape(-1, curr_obs.shape[-1])).reshape(curr_obs.shape[0], -1)
-        encode_vel, _, context_mean, _ = self.cenet.encode(history_obs_normalized)
-        encode_vel_normalized = self.actor_lin_vel_normalizer(encode_vel)
-        actor_obs = torch.cat((curr_obs_normalized, encode_vel_normalized.detach(), context_mean.detach()), dim=-1)
+        encode_lin_vel, _, context_mean, _ = self.cenet.encode(history_obs_normalized)
+        lin_vel_normalized = self.actor_lin_vel_normalizer(encode_lin_vel)
+        actor_obs = torch.cat((curr_obs_normalized, lin_vel_normalized.detach(), context_mean.detach()), dim=-1)
         if self.state_dependent_std:
             return self.actor(actor_obs)[..., 0, :]
         else:
@@ -290,8 +290,6 @@ class CENet(nn.Module):
         decoder_output_dim = 0
         for obs_group in obs_groups["policy"]:
             decoder_output_dim += obs[obs_group].shape[-1]
-        for key in estimated_state_dims:
-            decoder_output_dim += estimated_state_dims[key]
 
         # Encoder
         self.encoder = MLP(encoder_input_dim, encoder_output_dim, encoder_hidden_dims, activation, last_activation=activation)
@@ -308,12 +306,12 @@ class CENet(nn.Module):
 
     def encode(self, obs_hist: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         feature = self.encoder(obs_hist)
-        encode_vel = self.encoder_head_lin_vel(feature)
+        encode_lin_vel = self.encoder_head_lin_vel(feature)
         context_mean = self.encoder_head_context_mean(feature)
         context_logvar = self.encoder_head_context_logvar(feature)
         context_logvar_clipped = (0.5 * context_logvar).exp().clip(0.0, 5.0).square().log()
         encode_context = self.reparameterize(context_mean, context_logvar_clipped)
-        return encode_vel, encode_context, context_mean, context_logvar_clipped
+        return encode_lin_vel, encode_context, context_mean, context_logvar_clipped
 
     def decode(self, estimated_states: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
         return self.decoder(torch.cat((estimated_states.detach(), context), dim=-1))

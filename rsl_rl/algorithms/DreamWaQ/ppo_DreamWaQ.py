@@ -302,8 +302,8 @@ class PPODreamWaQ:
 
             # Recompute actions log prob and entropy for current batch of transitions
             # Note: We need to do this because we updated the policy with the new parameters
-            encode_vel_batch, encode_context_batch, context_mean_batch, context_logvar_batch = self.policy.act(obs_batch, self.bootstrap, stage="update", masks=masks_batch, hidden_state=hidden_states_batch[0])
-            reconstructed_obs_batch = self.policy.cenet.decode(encode_vel_batch, encode_context_batch)
+            encode_lin_vel_batch, encode_context_batch, context_mean_batch, context_logvar_batch = self.policy.act(obs_batch, self.bootstrap, stage="update", masks=masks_batch, hidden_state=hidden_states_batch[0])
+            reconstructed_obs_batch = self.policy.cenet.decode(encode_lin_vel_batch, encode_context_batch)
             actions_log_prob_batch = self.policy.get_actions_log_prob(actions_batch)
             value_batch = self.policy.evaluate(obs_batch, masks=masks_batch, hidden_state=hidden_states_batch[1])
             # Note: We only keep the entropy of the first augmentation (the original one)
@@ -369,20 +369,12 @@ class PPODreamWaQ:
             loss = surrogate_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy_batch.mean()
 
             # CENet loss
-            encode_vel_normalized_batch = self.policy.actor_lin_vel_normalizer(encode_vel_batch)
+            encode_lin_vel_normalized_batch = self.policy.actor_lin_vel_normalizer(encode_lin_vel_batch)
             lin_vel_targets_normalized_batch = self.policy.actor_lin_vel_normalizer(lin_vel_targets_batch)
-            reconstructed_obs_normalized_batch = torch.cat(
-                [self.policy.actor_obs_normalizer(reconstructed_obs_batch[:, :-3]),
-                 self.policy.actor_lin_vel_normalizer(reconstructed_obs_batch[:, -3:])],
-                dim=-1
-            )
-            reconstructed_obs_targets_normalized_batch = torch.cat(
-                [self.policy.actor_obs_normalizer(reconstructed_obs_targets_batch[:, :-3]),
-                 self.policy.actor_lin_vel_normalizer(reconstructed_obs_targets_batch[:, -3:])],
-                dim=-1
-            )
+            reconstructed_obs_normalized_batch = self.policy.actor_obs_normalizer(reconstructed_obs_batch)
+            reconstructed_obs_targets_normalized_batch = self.policy.actor_obs_normalizer(reconstructed_obs_targets_batch)
 
-            vel_est_loss = nn.functional.mse_loss(encode_vel_normalized_batch[dones_batch == 0], lin_vel_targets_normalized_batch[dones_batch == 0])
+            vel_est_loss = nn.functional.mse_loss(encode_lin_vel_normalized_batch[dones_batch == 0], lin_vel_targets_normalized_batch[dones_batch == 0])
             reconstruction_loss = nn.functional.mse_loss(reconstructed_obs_normalized_batch[dones_batch == 0], reconstructed_obs_targets_normalized_batch[dones_batch == 0])
             latent_loss = torch.mean(-0.5 * torch.sum(1 + context_logvar_batch[dones_batch == 0] - context_mean_batch[dones_batch == 0].square() - context_logvar_batch[dones_batch == 0].exp(), dim=-1))
 

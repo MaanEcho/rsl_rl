@@ -147,7 +147,7 @@ class RolloutStorageDreamWaQ:
         # For CENet
         lin_vel_targets = observations["privileged"][:, :3]
         next_observations = self.next_observations.flatten(0, 1)
-        reconstructed_obs_targets = torch.cat([next_observations["proprioception"], next_observations["privileged"][:, :3]], dim=-1)
+        reconstructed_obs_targets = next_observations["proprioception"]
         dones = self.dones.flatten(0, 1).squeeze(-1)
 
         for epoch in range(num_epochs):
