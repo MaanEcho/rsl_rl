@@ -9,5 +9,6 @@ from .distillation import Distillation
 from .ppo import PPO
 
 from .DreamWaQ.ppo_DreamWaQ import PPODreamWaQ
+from .HIMLoco.him_ppo import HIMPPO
 
-__all__ = ["PPO", "Distillation", "PPODreamWaQ"]
+__all__ = ["PPO", "Distillation", "PPODreamWaQ", "HIMPPO"]
