@@ -186,6 +186,9 @@ class HIMLocoVecEnvWrapper(VecEnv):
         if not self.unwrapped.cfg.is_finite_horizon:
             extras["time_outs"] = truncated
 
+        # track which environments terminated this step (HIMLoco-specific)
+        self.termination_ids = dones.nonzero(as_tuple=False).flatten()
+
         # extract policy observations (single-step observations)
         current_obs = obs_dict["proprioception_with_noise"]
         # update policy observations history buffer
@@ -193,6 +196,7 @@ class HIMLocoVecEnvWrapper(VecEnv):
         # [new_single_step_obs, old_obs_history[:-num_one_step_obs]]
         if self.history_length > 0:
             self.obs_history_buf = torch.cat((current_obs, self.obs_history_buf[:, :-self.num_one_step_obs]), dim=-1)
+            self.obs_history_buf[self.termination_ids] = current_obs[self.termination_ids].repeat(1, self.history_length + 1)
         else:
             self.obs_history_buf = current_obs
 
@@ -207,11 +211,10 @@ class HIMLocoVecEnvWrapper(VecEnv):
         # update privileged observations history buffer if available
         if self.privileged_history_length > 0:
             self.privileged_obs_history_buf = torch.cat((current_privileged_obs, self.privileged_obs_history_buf[:, :-self.num_one_step_privileged_obs]), dim=-1)
+            self.privileged_obs_history_buf[self.termination_ids] = current_privileged_obs[self.termination_ids].repeat(1, self.privileged_history_length + 1)
         else:
             self.privileged_obs_history_buf = current_privileged_obs
 
-        # track which environments terminated this step (HIMLoco-specific)
-        self.termination_ids = dones.nonzero(as_tuple=False).flatten()
         # extract termination observations
         self.termination_privileged_obs = termination_obs[self.termination_ids]
 

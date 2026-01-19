@@ -104,7 +104,7 @@ class HIMOnPolicyRunner:
             elif self.logger_type == "wandb":
                 from rsl_rl.utils.wandb_utils import WandbSummaryWriter
 
-                self.writer = WandbSummaryWriter(log_dir=self.log_dir, flush_secs=10, cfg=self.alg_cfg)
+                self.writer = WandbSummaryWriter(log_dir=self.log_dir, flush_secs=10, cfg=self.cfg)
             elif self.logger_type == "swanlab":
                 from rsl_rl.utils.swanlab_utils import SwanlabSummaryWriter
 
