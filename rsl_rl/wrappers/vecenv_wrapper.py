@@ -42,7 +42,8 @@ class RslRlVecEnvWrapper(VecEnv):
 
         # initialize the wrapper
         self.env = env
-        self.clip_actions = train_cfg.clip_actions
+        self.clip_actions = train_cfg.get("clip_actions", None)
+        self.only_positive_rewards = train_cfg.get("only_positive_rewards", False)
 
         # store information required by wrapper
         self.num_envs = self.unwrapped.num_envs
@@ -154,6 +155,9 @@ class RslRlVecEnvWrapper(VecEnv):
             obs_dict, rew, terminated, truncated, extras = returns
         else:
             obs_dict, obs_dict_before_reset, rew, terminated, truncated, extras = returns
+        # clip rewards if only_positive_rewards is True
+        if self.only_positive_rewards:
+            rew = torch.clamp(rew, min=0.0)
         # compute dones for compatibility with RSL-RL
         dones = (terminated | truncated).to(dtype=torch.long)
         # move time out information to the extras dict

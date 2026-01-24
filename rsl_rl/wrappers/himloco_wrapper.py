@@ -39,9 +39,9 @@ class HIMLocoVecEnvWrapper(VecEnv):
 
         # initialize the wrapper
         self.env = env
-        self.clip_actions = train_cfg.clip_actions
-        self.only_positive_rewards = train_cfg.only_positive_rewards
-        self.obs_groups = train_cfg.obs_groups
+        self.clip_actions = train_cfg.get("clip_actions", None)
+        self.only_positive_rewards = train_cfg.get("only_positive_rewards", False)
+        self.obs_groups = train_cfg.get("obs_groups")
 
         # store information required by HimLoco RSL-RL
         self.num_envs = self.unwrapped.num_envs
@@ -61,7 +61,7 @@ class HIMLocoVecEnvWrapper(VecEnv):
         # These are the dimensions of observations returned by the environment at each step
         self.num_one_step_obs = self.unwrapped.observation_manager.group_obs_dim["proprioception_with_noise"][0]
         # Set history lengths
-        self.history_length = train_cfg.history_length
+        self.history_length = train_cfg.get("history_length", 5)
         # Calculate total observation dimensions
         # history_length=0 means only current step (num_obs = num_one_step_obs)
         # history_length=1 means current + 1 past step (num_obs = num_one_step_obs * 2)
@@ -71,9 +71,9 @@ class HIMLocoVecEnvWrapper(VecEnv):
 
         # Initialize privileged observations related attributes
         self.num_one_step_privileged_obs = 0
-        for group_name in train_cfg.obs_groups["critic"]:
+        for group_name in train_cfg.get("obs_groups").get("critic"):
             self.num_one_step_privileged_obs += self.unwrapped.observation_manager.group_obs_dim[group_name][0]
-        self.privileged_history_length = train_cfg.privileged_history_length
+        self.privileged_history_length = train_cfg.get("privileged_history_length", 0)
         self.num_privileged_obs = self.num_one_step_privileged_obs * (self.privileged_history_length + 1)
         self.privileged_obs_history_buf = torch.zeros(self.num_envs, self.num_privileged_obs, dtype=torch.float, device=self.device)
 
@@ -177,6 +177,7 @@ class HIMLocoVecEnvWrapper(VecEnv):
             actions = torch.clamp(actions, -self.clip_actions, self.clip_actions)
         # record step information
         obs_dict, obs_dict_before_reset, rew, terminated, truncated, extras = self.env.step(actions)
+        # clip rewards if only_positive_rewards is True
         if self.only_positive_rewards:
             rew = torch.clamp(rew, min=0.0)
         # compute dones for compatibility with HIMLoco RSL-RL
@@ -203,7 +204,7 @@ class HIMLocoVecEnvWrapper(VecEnv):
         # extract privileged observations and termination observations (single-step observations)
         current_privileged_obs_list = []
         termination_obs_list = []
-        for group_name in self.obs_groups["critic"]:
+        for group_name in self.obs_groups.get("critic"):
             current_privileged_obs_list.append(obs_dict[group_name])
             termination_obs_list.append(obs_dict_before_reset[group_name])
         current_privileged_obs = torch.cat(current_privileged_obs_list, dim=-1)

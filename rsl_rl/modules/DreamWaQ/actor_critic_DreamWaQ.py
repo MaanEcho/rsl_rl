@@ -170,15 +170,17 @@ class ActorCriticDreamWaQ(nn.Module):
         self.distribution = Normal(mean, std)
 
     def act(self, obs: TensorDict, bootstrap: bool, stage: Literal["rollout", "update"], **kwargs: dict[str, Any]) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        curr_obs, history_obs = self.get_actor_obs(obs, "all")
-        curr_obs_normalized = self.actor_obs_normalizer(curr_obs)
-        history_obs_normalized = self.actor_obs_normalizer(history_obs.reshape(-1, curr_obs.shape[-1])).reshape(curr_obs.shape[0], -1)
+        with torch.no_grad():
+            curr_obs, history_obs = self.get_actor_obs(obs, "all")
+            curr_obs_normalized = self.actor_obs_normalizer(curr_obs)
+            history_obs_normalized = self.actor_obs_normalizer(history_obs.reshape(-1, curr_obs.shape[-1])).reshape(curr_obs.shape[0], -1)
         encode_lin_vel, encode_context, context_mean, context_logvar = self.cenet.encode(history_obs_normalized)
-        if bootstrap:
-            lin_vel_normalized = self.actor_lin_vel_normalizer(encode_lin_vel)
-        else:
-            lin_vel = obs["privileged"][:, :3]
-            lin_vel_normalized = self.actor_lin_vel_normalizer(lin_vel)
+        with torch.no_grad():
+            if bootstrap:
+                lin_vel_normalized = self.actor_lin_vel_normalizer(encode_lin_vel)
+            else:
+                lin_vel = obs["privileged"][:, :3]
+                lin_vel_normalized = self.actor_lin_vel_normalizer(lin_vel)
         actor_obs = torch.cat((curr_obs_normalized, lin_vel_normalized.detach(), encode_context.detach()), dim=-1)
         self._update_distribution(actor_obs)
         if stage == "rollout":
@@ -201,12 +203,13 @@ class ActorCriticDreamWaQ(nn.Module):
             return self.actor(actor_obs)
 
     def evaluate(self, obs: TensorDict, **kwargs: dict[str, Any]) -> torch.Tensor:
-        obs_list = self.get_critic_obs(obs)
-        curr_obs_normalized = self.critic_obs_normalizer(obs_list[0])
-        lin_vel_normalized = self.critic_lin_vel_normalizer(obs_list[1][:, :3])
-        external_force_torque = obs_list[1][:, 3:]
-        height_scan = obs_list[2]
-        critic_obs = torch.cat((curr_obs_normalized, lin_vel_normalized, external_force_torque, height_scan), dim=-1)
+        with torch.no_grad():
+            obs_list = self.get_critic_obs(obs)
+            curr_obs_normalized = self.critic_obs_normalizer(obs_list[0])
+            lin_vel_normalized = self.critic_lin_vel_normalizer(obs_list[1][:, :3])
+            external_force = obs_list[1][:, 3:]
+            height_scan = obs_list[2]
+            critic_obs = torch.cat((curr_obs_normalized, lin_vel_normalized, external_force, height_scan), dim=-1)
         return self.critic(critic_obs)
 
     def get_actor_obs(self, obs: TensorDict, mode: Literal["current", "history", "all"]) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:

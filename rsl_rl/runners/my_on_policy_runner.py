@@ -125,7 +125,7 @@ class MyOnPolicyRunner:
             )
 
             # Save model
-            if self.logger.log_dir is not None and not self.logger.disable_logs and it % self.cfg["save_interval"] == 0:
+            if self.logger.log_dir is not None and not self.logger.disable_logs and it > 0 and it % self.cfg["save_interval"] == 0:
                 self.save(os.path.join(self.logger.log_dir, f"model_{it}.pt"))
 
         # Save the final model after training

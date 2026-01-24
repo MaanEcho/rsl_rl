@@ -9,6 +9,7 @@ import torch
 from collections import deque
 
 import rsl_rl
+import robot_lab
 
 
 class MyLogger:
@@ -30,7 +31,7 @@ class MyLogger:
         self.num_envs = num_envs
         self.gpu_world_size = gpu_world_size
         self.device = device
-        self.git_status_repos = [rsl_rl.__file__]
+        self.git_status_repos = [rsl_rl.__file__, robot_lab.__file__]
         self.tot_timesteps = 0
         self.tot_time = 0
 
