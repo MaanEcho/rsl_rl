@@ -9,7 +9,7 @@ from .on_policy_runner import OnPolicyRunner  # noqa: I001
 from .distillation_runner import DistillationRunner
 
 from .my_on_policy_runner import MyOnPolicyRunner
-from .dreamwaqV1_on_policy_runner import DreamWaQV1OnPolicyRunner
-from .him_on_policy_runner import HIMOnPolicyRunner
+from .DreamWaQ.dreamwaqV1_on_policy_runner import DreamWaQV1OnPolicyRunner
+from .HIMLoco.him_on_policy_runner import HIMOnPolicyRunner
 
 __all__ = ["DistillationRunner", "OnPolicyRunner", "MyOnPolicyRunner", "DreamWaQV1OnPolicyRunner", "HIMOnPolicyRunner"]
