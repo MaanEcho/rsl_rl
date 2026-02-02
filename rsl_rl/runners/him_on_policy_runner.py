@@ -27,10 +27,11 @@
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 
-import time
 import os
-from collections import deque
 import statistics
+import time
+from collections import deque
+from pathlib import Path
 
 import torch
 
@@ -307,3 +308,7 @@ class HIMOnPolicyRunner:
         if device is not None:
             self.alg.actor_critic.to(device)
         return self.alg.actor_critic.act_inference
+
+    def export_policy(self, path: Path) -> None:
+        obs = self.env.get_observations().to(self.device)
+        self.alg.actor_critic.export_policy(obs, path)

@@ -28,12 +28,16 @@
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 
+import copy
 import numpy as np  # noqa: F401
+from pathlib import Path
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.distributions import Normal
 from rsl_rl.modules.HIMLoco.him_estimator import HIMEstimator
+from rsl_rl.utils import optimize_onnx_model
 
 
 class RunningMeanStd:
@@ -215,6 +219,77 @@ class HIMActorCritic(nn.Module):
     def evaluate(self, critic_observations, **kwargs):
         value = self.critic(critic_observations)
         return value
+
+    def export_policy(self, obs: torch.Tensor, path: Path) -> None:
+        policy = InferenceWrapper(self)
+        self._export_policy_as_jit(policy, path)
+        self._export_policy_as_onnx(obs, policy, path)
+
+    def _export_policy_as_jit(self, model: nn.Module, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint = path.stem.split("_")[-1]
+        export_path = path.with_name(f"policy_{checkpoint}_HIMLoco.pt")
+        with torch.no_grad():
+            policy = copy.deepcopy(model).to("cpu")
+            policy.eval()
+            for p in policy.parameters():
+                p.requires_grad_(False)
+            policy_scripted = torch.jit.script(policy)
+            policy_frozen = torch.jit.freeze(policy_scripted)
+            policy_optimized = torch.jit.optimize_for_inference(policy_frozen)
+            policy_optimized.save(export_path)
+
+    def _export_policy_as_onnx(self, obs_hist: torch.Tensor, model: nn.Module, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint = path.stem.split("_")[-1]
+        export_path = path.with_name(f"policy_{checkpoint}_HIMLoco.onnx")
+        with torch.no_grad():
+            policy = copy.deepcopy(model).to("cpu")
+            policy.eval()
+            for p in policy.parameters():
+                p.requires_grad_(False)
+            obs = obs_hist[:, :self.num_one_step_obs].clone().to("cpu")
+            obs_hist = obs_hist.to("cpu")
+            torch.onnx.export(
+                policy,
+                (obs, obs_hist),
+                export_path,
+                input_names=["obs", "obs_hist"],
+                output_names=["actions"],
+                opset_version=17,
+                optimize=False,  # Optimize later
+                export_params=True,
+                dynamic_axes={
+                    "obs": {0: "batch_size"},
+                    "obs_hist": {0: "batch_size"},
+                    "actions": {0: "batch_size"},
+                },
+                do_constant_folding=True,
+            )
+
+            import onnx
+
+            onnx.checker.check_model(export_path, full_check=True)
+            onnx_model = onnx.load(export_path)
+            optimize_onnx_model(onnx_model, export_path, verbose=True)
+            onnx.checker.check_model(export_path, full_check=True)
+
+
+class InferenceWrapper(nn.Module):
+    def __init__(self, model: HIMActorCritic) -> None:
+        super().__init__()
+
+        self.actor = model.actor
+        self.encoder = model.estimator.encoder
+
+        self.eval()
+
+    def forward(self, obs: torch.Tensor, obs_hist: torch.Tensor) -> torch.Tensor:
+        parts = self.encoder(obs_hist)
+        vel, latent = parts[..., :3], parts[..., 3:]
+        latent = F.normalize(latent, dim=-1, p=2.0)
+        actor_obs = torch.cat((obs, vel, latent), dim=-1)
+        return self.actor(actor_obs)
 
 
 def get_activation(act_name):
