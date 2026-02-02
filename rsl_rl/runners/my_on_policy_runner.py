@@ -4,6 +4,7 @@ import os
 import time
 import torch
 import warnings
+from pathlib import Path
 from tensordict import TensorDict
 
 from rsl_rl.algorithms import PPO, PPODreamWaQ
@@ -130,7 +131,7 @@ class MyOnPolicyRunner:
 
         # Save the final model after training
         if self.logger.log_dir is not None and not self.logger.disable_logs:
-            self.save(os.path.join(self.logger.log_dir, f"model_{self.current_learning_iteration}.pt"))
+            self.save(os.path.join(self.logger.log_dir, f"model_{self.current_learning_iteration + 1}.pt"))
 
     def save(self, path: str, infos: dict | None = None) -> None:
         # Save model
@@ -197,6 +198,10 @@ class MyOnPolicyRunner:
 
     def add_git_repo_to_log(self, repo_file_path: str) -> None:
         self.logger.git_status_repos.append(repo_file_path)
+
+    def export_policy(self, path: Path) -> None:
+        obs = self.env.get_observations().to(self.device)
+        self.alg.policy.export_policy(obs, path)
 
     def _get_default_obs_sets(self) -> list[str]:
         """Get the the default observation sets required for the algorithm.

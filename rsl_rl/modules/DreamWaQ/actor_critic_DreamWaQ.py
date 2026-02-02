@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import copy
 import torch
 import torch.nn as nn
+from pathlib import Path
 from tensordict import TensorDict
 from torch.distributions import Normal
 from typing import Any, Literal, NoReturn
 
 from rsl_rl.networks import MLP, EmpiricalNormalization
+from rsl_rl.utils import optimize_onnx_model
 
 
 class ActorCriticDreamWaQ(nn.Module):
@@ -257,6 +260,60 @@ class ActorCriticDreamWaQ(nn.Module):
         super().load_state_dict(state_dict, strict=strict)
         return True
 
+    def export_policy(self, obs: TensorDict, path: Path) -> None:
+        policy = InferenceWrapper(self)
+        self._export_policy_as_jit(policy, path)
+        self._export_policy_as_onnx(obs, policy, path)
+
+    def _export_policy_as_jit(self, model: nn.Module, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint = path.stem.split("_")[-1]
+        export_path = path.with_name(f"policy_{checkpoint}_DreamWaQ.pt")
+        with torch.no_grad():
+            policy = copy.deepcopy(model).to("cpu")
+            policy.eval()
+            for p in policy.parameters():
+                p.requires_grad_(False)
+            policy_scripted = torch.jit.script(policy)
+            policy_frozen = torch.jit.freeze(policy_scripted)
+            policy_optimized = torch.jit.optimize_for_inference(policy_frozen)
+            policy_optimized.save(export_path)
+
+    def _export_policy_as_onnx(self, obs: TensorDict, model: nn.Module, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint = path.stem.split("_")[-1]
+        export_path = path.with_name(f"policy_{checkpoint}_DreamWaQ.onnx")
+        with torch.no_grad():
+            policy = copy.deepcopy(model).to("cpu")
+            policy.eval()
+            for p in policy.parameters():
+                p.requires_grad_(False)
+            obs, obs_hist = self.get_actor_obs(obs, "all")
+            obs, obs_hist = obs.to("cpu"), obs_hist.to("cpu")
+            torch.onnx.export(
+                policy,
+                (obs, obs_hist),
+                export_path,
+                input_names=["obs", "obs_hist"],
+                output_names=["actions"],
+                opset_version=17,
+                optimize=False,  # Optimize later
+                export_params=True,
+                dynamic_axes={
+                    "obs": {0: "batch_size"},
+                    "obs_hist": {0: "batch_size"},
+                    "actions": {0: "batch_size"},
+                },
+                do_constant_folding=True,
+            )
+
+            import onnx
+
+            onnx.checker.check_model(export_path, full_check=True)
+            onnx_model = onnx.load(export_path)
+            optimize_onnx_model(onnx_model, export_path, verbose=True)
+            onnx.checker.check_model(export_path, full_check=True)
+
 
 class CENet(nn.Module):
     def __init__(
@@ -312,7 +369,7 @@ class CENet(nn.Module):
         encode_lin_vel = self.encoder_head_lin_vel(feature)
         context_mean = self.encoder_head_context_mean(feature)
         context_logvar = self.encoder_head_context_logvar(feature)
-        context_logvar_clipped = (0.5 * context_logvar).exp().clip(0.0, 5.0).square().log()
+        context_logvar_clipped = (0.5 * context_logvar).exp().clip(1.0e-6, 5.0).square().log()
         encode_context = self.reparameterize(context_mean, context_logvar_clipped)
         return encode_lin_vel, encode_context, context_mean, context_logvar_clipped
 
@@ -324,3 +381,32 @@ class CENet(nn.Module):
         epsilon = torch.randn_like(std)
         encode = mean + epsilon * std
         return encode
+
+
+class InferenceWrapper(nn.Module):
+    def __init__(self, models: ActorCriticDreamWaQ) -> None:
+        super().__init__()
+
+        self.actor = models.actor
+        self.encoder = models.cenet.encoder
+        self.encoder_head_lin_vel = models.cenet.encoder_head_lin_vel
+        self.encoder_head_context_mean = models.cenet.encoder_head_context_mean
+        self.actor_obs_normalizer = models.actor_obs_normalizer
+        self.actor_lin_vel_normalizer = models.actor_lin_vel_normalizer
+
+        self.state_dependent_std = models.state_dependent_std
+
+        self.eval()
+
+    def forward(self, obs: torch.Tensor, obs_hist: torch.Tensor) -> torch.Tensor:
+        obs_normalized = self.actor_obs_normalizer(obs)
+        obs_hist_normalized = self.actor_obs_normalizer(obs_hist.reshape(-1, obs.shape[-1])).reshape(obs.shape[0], -1)
+        feature = self.encoder(obs_hist_normalized)
+        encode_lin_vel = self.encoder_head_lin_vel(feature)
+        context_mean = self.encoder_head_context_mean(feature)
+        lin_vel_normalized = self.actor_lin_vel_normalizer(encode_lin_vel)
+        actor_obs = torch.cat((obs_normalized, lin_vel_normalized, context_mean), dim=-1)
+        if self.state_dependent_std:
+            return self.actor(actor_obs)[..., 0, :]
+        else:
+            return self.actor(actor_obs)

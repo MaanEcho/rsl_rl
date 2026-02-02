@@ -6,8 +6,10 @@
 from __future__ import annotations
 
 import importlib
+import time
 import torch
 import warnings
+from pathlib import Path
 from tensordict import TensorDict
 from typing import Any, Callable
 
@@ -285,3 +287,26 @@ def resolve_obs_groups(
     print("-" * 80)
 
     return obs_groups
+
+
+def optimize_onnx_model(model, output_path: Path, verbose: bool = True) -> None:
+    """Optimize the ONNX model using onnxslim optimizer."""
+
+    try:
+        import onnx
+        import onnxslim
+        from onnxslim.utils import print_model_info_as_table, summarize_model
+    except ModuleNotFoundError:
+        raise ModuleNotFoundError("onnxslim is not installed. Please install it with `pip install onnxslim`.")
+
+    original_info = summarize_model(model, "Before Optimization")
+    start_time = time.time()
+    optimized_model = onnxslim.slim(model, verbose=verbose)
+    end_time = time.time()
+    onnx.save(optimized_model, output_path)
+
+    if verbose:
+        slimmed_info = summarize_model(optimized_model, "After Optimization")
+        elapsed_time = end_time - start_time
+        print_model_info_as_table([original_info, slimmed_info], elapsed_time)
+        print("Optimized ONNX model with onnxslim.")

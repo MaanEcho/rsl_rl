@@ -13,6 +13,7 @@ from .utils import (
     split_and_pad_trajectories,
     string_to_callable,
     unpad_trajectories,
+    optimize_onnx_model,
 )
 
 __all__ = [
@@ -23,4 +24,5 @@ __all__ = [
     "split_and_pad_trajectories",
     "string_to_callable",
     "unpad_trajectories",
+    "optimize_onnx_model",
 ]
