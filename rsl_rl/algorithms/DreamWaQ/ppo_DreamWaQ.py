@@ -234,7 +234,7 @@ class PPODreamWaQ:
         if not self.normalize_advantage_per_mini_batch:
             st.advantages = (st.advantages - st.advantages.mean()) / (st.advantages.std() + 1e-8)
 
-    def update(self) -> dict[str, float]:
+    def update(self, current_iteration: int, total_iterations: int) -> dict[str, float]:
         mean_total_loss = 0
         # PPO loss
         mean_ppo_loss = 0
@@ -303,7 +303,7 @@ class PPODreamWaQ:
             # Recompute actions log prob and entropy for current batch of transitions
             # Note: We need to do this because we updated the policy with the new parameters
             encode_lin_vel_batch, encode_context_batch, context_mean_batch, context_logvar_batch = self.policy.act(obs_batch, self.bootstrap, stage="update", masks=masks_batch, hidden_state=hidden_states_batch[0])
-            reconstructed_obs_batch = self.policy.cenet.decode(encode_lin_vel_batch, encode_context_batch)
+            reconstructed_obs_batch = self.policy.cenet.decode(encode_lin_vel_batch, lin_vel_targets_batch, self.bootstrap, encode_context_batch)
             actions_log_prob_batch = self.policy.get_actions_log_prob(actions_batch)
             value_batch = self.policy.evaluate(obs_batch, masks=masks_batch, hidden_state=hidden_states_batch[1])
             # Note: We only keep the entropy of the first augmentation (the original one)
@@ -516,6 +516,10 @@ class PPODreamWaQ:
         if self.symmetry:
             loss_dict["symmetry"] = mean_symmetry_loss
 
+        # Post Processing
+        self._linear_lr_decay(self.cenet_optimizer, current_iteration, total_iterations, self.cenet_lr_initial, self.cenet_lr_final)
+        self._update_bootstrap()
+
         return loss_dict
 
     def broadcast_parameters(self) -> None:
@@ -561,14 +565,14 @@ class PPODreamWaQ:
                 # Update the offset for the next parameter
                 offset += numel
 
-    def linear_lr_decay(self, optimizer: optim.Optimizer, current_iteration: int, num_iterations: int, lr_init: float, lr_final: float) -> None:
+    def _linear_lr_decay(self, optimizer: optim.Optimizer, current_iteration: int, total_iterations: int, lr_init: float, lr_final: float) -> None:
         """Linear learning rate decay for the optimizer."""
-        progress = current_iteration / num_iterations
+        progress = current_iteration / total_iterations
         lr = lr_init + (lr_final - lr_init) * progress
         for param_group in optimizer.param_groups:
             param_group["lr"] = lr
 
-    def update_bootstrap(self) -> None:
+    def _update_bootstrap(self) -> None:
         if self.adaptive_bootstrap:
             episodic_rewards = None
             if len(self.adaboot_rewbuffer) > self.adaboot_num_rewards:

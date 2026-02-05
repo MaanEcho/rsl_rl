@@ -373,8 +373,11 @@ class CENet(nn.Module):
         encode_context = self.reparameterize(context_mean, context_logvar_clipped)
         return encode_lin_vel, encode_context, context_mean, context_logvar_clipped
 
-    def decode(self, estimated_states: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
-        return self.decoder(torch.cat((estimated_states.detach(), context), dim=-1))
+    def decode(self, estimated_states: torch.Tensor, states: torch.Tensor, bootstrap: bool, context: torch.Tensor) -> torch.Tensor:
+        if bootstrap:
+            return self.decoder(torch.cat((estimated_states.detach(), context), dim=-1))
+        else:
+            return self.decoder(torch.cat((states.detach(), context), dim=-1))
 
     def reparameterize(self, mean: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
         std = torch.exp(0.5 * logvar)
