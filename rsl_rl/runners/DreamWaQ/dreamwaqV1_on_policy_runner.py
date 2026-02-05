@@ -127,7 +127,7 @@ class DreamWaQV1OnPolicyRunner:
 
         # Save the final model after training
         if self.logger.log_dir is not None and not self.logger.disable_logs:
-            self.save(os.path.join(self.logger.log_dir, f"model_{self.current_learning_iteration}.pt"))
+            self.save(os.path.join(self.logger.log_dir, f"model_{self.current_learning_iteration + 1}.pt"))
 
     def save(self, path: str, infos: dict | None = None) -> None:
         # Save model
