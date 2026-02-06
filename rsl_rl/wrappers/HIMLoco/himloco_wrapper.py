@@ -165,11 +165,11 @@ class HIMLocoVecEnvWrapper(VecEnv):
 
     def get_observations(self) -> torch.Tensor:
         """Returns the current observations history of the environment."""
-        return self.obs_history_buf
+        return self.obs_history_buf.clone()
 
     def get_privileged_observations(self) -> torch.Tensor:
         """Returns the current privileged observations history of the environment."""
-        return self.privileged_obs_history_buf
+        return self.privileged_obs_history_buf.clone()
 
     def step(self, actions: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, dict, torch.Tensor, torch.Tensor,]:
         # clip actions
@@ -225,7 +225,7 @@ class HIMLocoVecEnvWrapper(VecEnv):
         if torch.isnan(rew).any() or torch.isinf(rew).any():
             raise ValueError("NaN or Inf detected in rew")
 
-        return self.obs_history_buf, self.privileged_obs_history_buf, rew, dones, extras, self.termination_ids, self.termination_privileged_obs
+        return self.obs_history_buf.clone(), self.privileged_obs_history_buf.clone(), rew, dones, extras, self.termination_ids.clone(), self.termination_privileged_obs.clone()
 
     def close(self):  # noqa: D102
         return self.env.close()
