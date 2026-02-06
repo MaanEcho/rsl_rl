@@ -8,7 +8,7 @@ from isaaclab.envs import DirectRLEnv, ManagerBasedRLEnv
 
 
 class DreamWaQV1VecEnvWrapper(VecEnv):
-    """Wraps around Isaac Lab environment for the DreamWaQ V1RSL-RL library
+    """Wraps around Isaac Lab environment for the DreamWaQ V1 RSL-RL library
 
     .. caution::
         This class must be the last wrapper in the wrapper chain. This is because the wrapper does not follow
@@ -138,34 +138,26 @@ class DreamWaQV1VecEnvWrapper(VecEnv):
         # reset the environment
         obs_dict, extras = self.env.reset()
         self.obs_buf = TensorDict(obs_dict, batch_size=[self.num_envs])
-        self.obs_buf.set("proprioception_with_noise", self.obs_buf["proprioception_with_noise"].unsqueeze(1).repeat(1, self.history_length + 1, 1))
-        return self.obs_buf, extras
+        self.obs_buf.set("proprioception_with_noise", self.obs_buf["proprioception_with_noise"].clone().unsqueeze(1).repeat(1, self.history_length + 1, 1))
+        return self.obs_buf.clone(), extras
 
     def get_observations(self) -> TensorDict:
         """Returns the current observations of the environment."""
-        if hasattr(self.unwrapped, "observation_manager"):
-            obs_dict = self.unwrapped.observation_manager.compute()
-        else:
-            obs_dict = self.unwrapped._get_observations()
         if not hasattr(self, "obs_buf"):
+            if hasattr(self.unwrapped, "observation_manager"):
+                obs_dict = self.unwrapped.observation_manager.compute()
+            else:
+                obs_dict = self.unwrapped._get_observations()
             self.obs_buf = TensorDict(obs_dict, batch_size=[self.num_envs])
-            self.obs_buf.set("proprioception_with_noise", self.obs_buf["proprioception_with_noise"].unsqueeze(1).repeat(1, self.history_length + 1, 1))
-        for group_name in obs_dict.keys():
-            if group_name == "proprioception_with_noise":
-                continue
-            self.obs_buf.set(group_name, obs_dict[group_name])
-        proprioception_with_noise = self.obs_buf["proprioception_with_noise"]
-        proprioception_with_noise[:, :-1, :] = proprioception_with_noise[:, 1:]
-        proprioception_with_noise[:, -1, :] = obs_dict["proprioception_with_noise"]
-        return self.obs_buf
+            self.obs_buf.set("proprioception_with_noise", self.obs_buf["proprioception_with_noise"].clone().unsqueeze(1).repeat(1, self.history_length + 1, 1))
+        return self.obs_buf.clone()
 
     def step(self, actions: torch.Tensor) -> tuple[TensorDict, torch.Tensor, torch.Tensor, torch.Tensor, dict]:
         # clip actions
         if self.clip_actions is not None:
             actions = torch.clamp(actions, -self.clip_actions, self.clip_actions)
         # record step information
-        returns = self.env.step(actions)
-        obs_dict, obs_dict_before_reset, rew, terminated, truncated, extras = returns
+        obs_dict, obs_dict_before_reset, rew, terminated, truncated, extras = self.env.step(actions)
         # clip rewards if only_positive_rewards is True
         if self.only_positive_rewards:
             rew = torch.clamp(rew, min=0.0)
@@ -176,22 +168,19 @@ class DreamWaQV1VecEnvWrapper(VecEnv):
         if not self.unwrapped.cfg.is_finite_horizon:
             extras["time_outs"] = truncated
 
-        if not hasattr(self, "obs_buf"):
-            self.obs_buf = TensorDict(obs_dict, batch_size=[self.num_envs])
-            self.obs_buf.set("proprioception_with_noise", self.obs_buf["proprioception_with_noise"].unsqueeze(1).repeat(1, self.history_length + 1, 1))
         done_ids = dones.nonzero(as_tuple=False).flatten()
         for group_name in obs_dict.keys():
             if group_name == "proprioception_with_noise":
                 continue
-            self.obs_buf.set(group_name, obs_dict[group_name])
+            self.obs_buf.set(group_name, obs_dict[group_name].clone())
         proprioception_with_noise = self.obs_buf["proprioception_with_noise"]
-        proprioception_with_noise[:, :-1, :] = proprioception_with_noise[:, 1:]
-        proprioception_with_noise[:, -1, :] = obs_dict["proprioception_with_noise"]
-        proprioception_with_noise[done_ids, :, :] = obs_dict["proprioception_with_noise"][done_ids].unsqueeze(1).repeat(1, self.history_length + 1, 1)
+        proprioception_with_noise[:, :-1, :] = proprioception_with_noise[:, 1:].clone()
+        proprioception_with_noise[:, -1, :] = obs_dict["proprioception_with_noise"].clone()
+        proprioception_with_noise[done_ids] = obs_dict["proprioception_with_noise"][done_ids].clone().unsqueeze(1).repeat(1, self.history_length + 1, 1)
         reconstructed_obs_targets = obs_dict["proprioception"].clone()
-        reconstructed_obs_targets[done_ids] = obs_dict_before_reset["proprioception"][done_ids]
+        reconstructed_obs_targets[done_ids] = obs_dict_before_reset["proprioception"][done_ids].clone()
         # return the step information
-        return self.obs_buf, reconstructed_obs_targets, rew, dones, extras
+        return self.obs_buf.clone(), reconstructed_obs_targets, rew, dones, extras
 
     def close(self):  # noqa: D102
         return self.env.close()

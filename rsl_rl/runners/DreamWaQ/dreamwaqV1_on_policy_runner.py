@@ -97,11 +97,7 @@ class DreamWaQV1OnPolicyRunner:
                 self.alg.compute_returns(obs)
 
             # Update policy
-            loss_dict = self.alg.update()
-
-            # Post Processing
-            self.alg.linear_lr_decay(self.alg.cenet_optimizer, it + 1, total_it, self.alg.cenet_lr_initial, self.alg.cenet_lr_final)
-            self.alg.update_bootstrap()
+            loss_dict = self.alg.update(current_iteration=it + 1, total_iterations=total_it)
 
             stop = time.time()
             learn_time = stop - start
