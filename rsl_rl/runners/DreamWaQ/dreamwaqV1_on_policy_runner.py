@@ -4,6 +4,7 @@ import os
 import time
 import torch
 import warnings
+from pathlib import Path
 from tensordict import TensorDict
 
 from rsl_rl.algorithms import PPODreamWaQV1
@@ -190,6 +191,10 @@ class DreamWaQV1OnPolicyRunner:
 
     def add_git_repo_to_log(self, repo_file_path: str) -> None:
         self.logger.git_status_repos.append(repo_file_path)
+
+    def export_policy(self, path: Path) -> None:
+        obs = self.env.get_observations().to(self.device)
+        self.alg.policy.export_policy(obs, path)
 
     def _get_default_obs_sets(self) -> list[str]:
         """Get the the default observation sets required for the algorithm.
