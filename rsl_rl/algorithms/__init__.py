@@ -11,5 +11,6 @@ from .ppo import PPO
 from .DreamWaQ.ppo_DreamWaQ import PPODreamWaQ
 from .DreamWaQ.ppo_DreamWaQV1 import PPODreamWaQV1
 from .HIMLoco.him_ppo import HIMPPO
+from .VQVAE.ppo_VQVAE import PPOVQVAE
 
-__all__ = ["PPO", "Distillation", "PPODreamWaQ", "PPODreamWaQV1", "HIMPPO"]
+__all__ = ["PPO", "Distillation", "PPODreamWaQ", "PPODreamWaQV1", "HIMPPO", "PPOVQVAE"]

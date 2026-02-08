@@ -15,6 +15,7 @@ from .symmetry import resolve_symmetry_config
 
 from .DreamWaQ.actor_critic_DreamWaQ import ActorCriticDreamWaQ
 from .HIMLoco.him_actor_critic import HIMActorCritic
+from .VQVAE.actor_critic_VQVAE import ActorCriticVQVAE
 
 __all__ = [
     "ActorCritic",
@@ -27,4 +28,5 @@ __all__ = [
     "resolve_symmetry_config",
     "ActorCriticDreamWaQ",
     "HIMActorCritic",
+    "ActorCriticVQVAE",
 ]

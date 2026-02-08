@@ -10,5 +10,6 @@ from .rollout_storage import RolloutStorage
 from .DreamWaQ.rollout_storage_DreamWaQ import RolloutStorageDreamWaQ
 from .DreamWaQ.rollout_storage_DreamWaQV1 import RolloutStorageDreamWaQV1
 from .HIMLoco.him_rollout_storage import HIMRolloutStorage
+from .VQVAE.rollout_storage_VQVAE import RolloutStorageVQVAE
 
-__all__ = ["RolloutStorage", "RolloutStorageDreamWaQ", "RolloutStorageDreamWaQV1", "HIMRolloutStorage"]
+__all__ = ["RolloutStorage", "RolloutStorageDreamWaQ", "RolloutStorageDreamWaQV1", "HIMRolloutStorage", "RolloutStorageVQVAE"]
