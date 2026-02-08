@@ -12,7 +12,7 @@ from rsl_rl.networks import MLP, EmpiricalNormalization
 from rsl_rl.utils import optimize_onnx_model
 
 
-class ActorCriticVQVAE(nn.Module):
+class ActorCriticVQVAEEMA(nn.Module):
     is_recurrent: bool = False
 
     def __init__(
@@ -33,7 +33,7 @@ class ActorCriticVQVAE(nn.Module):
     ) -> None:
         if kwargs:
             print(
-                "ActorCriticVQVAE.__init__ got unexpected arguments, which will be ignored: " + str([key for key in kwargs])
+                "ActorCriticVQVAEEMA.__init__ got unexpected arguments, which will be ignored: " + str([key for key in kwargs])
             )
         super().__init__()
 
@@ -177,7 +177,7 @@ class ActorCriticVQVAE(nn.Module):
             curr_obs, history_obs = self.get_actor_obs(obs, "all")
             curr_obs_normalized = self.actor_obs_normalizer(curr_obs)
             history_obs_normalized = self.actor_obs_normalizer(history_obs.reshape(-1, curr_obs.shape[-1])).reshape(curr_obs.shape[0], -1)
-        encode_lin_vel, z_q_st, z_e, z_q, indices = self.cenet.encode(history_obs_normalized)
+        encode_lin_vel, z_q_st, z_e, z_q, indices = self.cenet.encode(history_obs_normalized, update_ema=(stage == "update"))
         with torch.no_grad():
             if bootstrap:
                 lin_vel_normalized = self.actor_lin_vel_normalizer(encode_lin_vel)
@@ -197,7 +197,7 @@ class ActorCriticVQVAE(nn.Module):
         curr_obs, history_obs = self.get_actor_obs(obs, "all")
         curr_obs_normalized = self.actor_obs_normalizer(curr_obs)
         history_obs_normalized = self.actor_obs_normalizer(history_obs.reshape(-1, curr_obs.shape[-1])).reshape(curr_obs.shape[0], -1)
-        encode_lin_vel, _, _, z_q, _ = self.cenet.encode(history_obs_normalized)
+        encode_lin_vel, _, _, z_q, _ = self.cenet.encode(history_obs_normalized, update_ema=False)
         lin_vel_normalized = self.actor_lin_vel_normalizer(encode_lin_vel)
         actor_obs = torch.cat((curr_obs_normalized, lin_vel_normalized.detach(), z_q.detach()), dim=-1)
         if self.state_dependent_std:
@@ -330,6 +330,8 @@ class CENet(nn.Module):
         estimated_state_dims: dict[str, int] = {"lin_vel": 3},
         codebook_size: int = 64,
         codebook_dim: int = 16,
+        ema_decay: float = 0.99,
+        ema_eps: float = 1.0e-5,
         activation: str = "elu",
         **kwargs: dict[str, Any],
     ) -> None:
@@ -338,6 +340,10 @@ class CENet(nn.Module):
                 "CENet.__init__ got unexpected arguments, which will be ignored: " + str([key for key in kwargs])
             )
         super().__init__()
+
+        # EMA parameters
+        self.ema_decay = ema_decay
+        self.ema_eps = ema_eps
 
         # Get the input and output dimensions
         encoder_input_dim = 0
@@ -363,15 +369,18 @@ class CENet(nn.Module):
 
         # Codebook
         self.codebook = nn.Embedding(codebook_size, codebook_dim)
+        self.codebook.weight.requires_grad_(False)
+        self.register_buffer("ema_cluster_size", torch.ones(codebook_size))
+        self.register_buffer("ema_embed_avg", self.codebook.weight.data.clone())
 
         # Decoder
         self.decoder = MLP(decoder_input_dim, decoder_output_dim, decoder_hidden_dims, activation)
 
-    def encode(self, obs_hist: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def encode(self, obs_hist: torch.Tensor, update_ema: bool = False) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         feature = self.encoder(obs_hist)
         encode_lin_vel = self.encoder_head_lin_vel(feature)
         z_e = self.encoder_head_codebook(feature)
-        z_q, z_q_st, indices = self._quantize(z_e)
+        z_q, z_q_st, indices = self._quantize(z_e, update_ema=update_ema)
         return encode_lin_vel, z_q_st, z_e, z_q, indices
 
     def decode(self, estimated_states: torch.Tensor, states: torch.Tensor, bootstrap: bool, z_q_st: torch.Tensor) -> torch.Tensor:
@@ -380,11 +389,12 @@ class CENet(nn.Module):
         else:
             return self.decoder(torch.cat((states.detach(), z_q_st), dim=-1))
 
-    def _quantize(self, z_e: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Vector-quantize z_e to the nearest codebook entry.
+    def _quantize(self, z_e: torch.Tensor, update_ema: bool = False) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Vector-quantize z_e to the nearest codebook entry (EMA codebook update).
 
         Args:
             z_e: (..., D) pre-quant latents, D must equal codebook_dim.
+            update_ema: whether to update EMA buffers/codebook (should be True only in update stage).
 
         Returns:
             z_q: (..., D) codebook embedding vectors (no straight-through).
@@ -400,20 +410,24 @@ class CENet(nn.Module):
         z_e_flat = z_e.reshape(-1, z_e.shape[-1])  # (N, D)
         codebook = self.codebook.weight  # (K, D)
 
-        # Nearest-neighbor search (no gradients needed for argmin path)
+        # Nearest-neighbor search (argmin path has no gradients)
         z_e_f = z_e_flat.float()
         codebook_f = codebook.float()
         with torch.no_grad():
             # Squared L2 distance: ||x-e||^2 = ||x||^2 + ||e||^2 - 2 x·e
             dist = (
-                z_e_f.pow(2).sum(dim=-1, keepdim=True)                 # (N, 1)
-                + codebook_f.pow(2).sum(dim=-1).unsqueeze(0)           # (1, K)
-                - 2.0 * (z_e_f @ codebook_f.t())                      # (N, K)
+                z_e_f.pow(2).sum(dim=-1, keepdim=True)          # (N, 1)
+                + codebook_f.pow(2).sum(dim=-1).unsqueeze(0)    # (1, K)
+                - 2.0 * (z_e_f @ codebook_f.t())                # (N, K)
             )
             indices_flat = dist.argmin(dim=-1)  # (N,)
 
-        # Lookup embeddings (gradients flow to codebook weights)
-        z_q_flat = self.codebook(indices_flat)  # (N, D)
+            # Lookup embeddings (EMA does not require gradients to flow to codebook weights)
+            z_q_flat = self.codebook(indices_flat)  # (N, D)
+
+            # EMA update should only happen in update stage (not rollout/inference)
+            if self.training and update_ema:
+                self._ema_update(z_e_flat.detach(), indices_flat)
 
         # Straight-through: forward uses z_q, backward treats it like identity on z_e
         z_q_st_flat = z_e_flat + (z_q_flat - z_e_flat).detach()
@@ -425,9 +439,53 @@ class CENet(nn.Module):
 
         return z_q, z_q_st, indices
 
+    @torch.no_grad()
+    def _ema_update(self, z_e_flat: torch.Tensor, indices_flat: torch.Tensor) -> None:
+        """EMA update for VQ-VAE codebook.
+
+        Args:
+            z_e_flat: (N, D) encoder outputs (should be detached / no-grad).
+            indices_flat: (N,) int64 nearest code indices in [0, K).
+        """
+        K = self.codebook.num_embeddings
+        D = self.codebook.embedding_dim
+
+        if z_e_flat.ndim != 2 or z_e_flat.shape[-1] != D:
+            raise ValueError(f"z_e_flat must be (N, {D}), got {tuple(z_e_flat.shape)}")
+
+        indices_flat = indices_flat.reshape(-1).long()
+        if indices_flat.numel() != z_e_flat.shape[0]:
+            raise ValueError(
+                f"indices_flat length ({indices_flat.numel()}) != z_e_flat N ({z_e_flat.shape[0]})"
+            )
+
+        # Use fp32 accumulators for stability (mixed precision friendly).
+        z_e_flat_f = z_e_flat.float()
+
+        # counts: (K,)
+        counts = torch.zeros(K, device=z_e_flat_f.device, dtype=torch.float32)
+        ones = torch.ones(indices_flat.shape[0], device=z_e_flat_f.device, dtype=torch.float32)
+        counts.index_add_(0, indices_flat, ones)
+
+        # embed_sum: (K, D)
+        embed_sum = torch.zeros(K, D, device=z_e_flat_f.device, dtype=torch.float32)
+        embed_sum.index_add_(0, indices_flat, z_e_flat_f)
+
+        decay = float(self.ema_decay)
+        self.ema_cluster_size.mul_(decay).add_(counts, alpha=1.0 - decay)
+        self.ema_embed_avg.mul_(decay).add_(embed_sum, alpha=1.0 - decay)
+
+        # Laplace smoothing (prevents dead codes / div-by-zero).
+        eps = float(self.ema_eps)
+        n = self.ema_cluster_size.sum()
+        cluster_size = (self.ema_cluster_size + eps) / (n + K * eps) * n  # (K,)
+
+        new_weight = self.ema_embed_avg / cluster_size.unsqueeze(1).clamp_min(1e-12)  # (K, D)
+        self.codebook.weight.data.copy_(new_weight.to(dtype=self.codebook.weight.dtype))
+
 
 class InferenceWrapper(nn.Module):
-    def __init__(self, models: ActorCriticVQVAE) -> None:
+    def __init__(self, models: ActorCriticVQVAEEMA) -> None:
         super().__init__()
 
         self.actor = models.actor
@@ -486,8 +544,8 @@ class InferenceWrapper(nn.Module):
             )
             indices_flat = dist.argmin(dim=-1)  # (N,)
 
-        # Lookup embeddings
-        z_q_flat = self.codebook(indices_flat)  # (N, D)
+            # Lookup embeddings
+            z_q_flat = self.codebook(indices_flat)  # (N, D)
 
         # Reshape back
         z_q = z_q_flat.reshape(*z_e.shape)
