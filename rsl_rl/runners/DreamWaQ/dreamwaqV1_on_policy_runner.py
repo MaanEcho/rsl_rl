@@ -4,17 +4,12 @@ import os
 import time
 import torch
 import warnings
+from importlib import import_module
 from pathlib import Path
 from tensordict import TensorDict
 
-from rsl_rl.algorithms import PPODreamWaQV1
 from rsl_rl.env import VecEnv
-from rsl_rl.modules import (
-    ActorCriticDreamWaQ,
-    resolve_rnd_config,
-    resolve_symmetry_config,
-)
-from rsl_rl.storage import RolloutStorageDreamWaQV1
+from rsl_rl.modules import resolve_rnd_config, resolve_symmetry_config
 from rsl_rl.utils import resolve_obs_groups
 from rsl_rl.utils.my_logger import MyLogger
 
@@ -251,7 +246,7 @@ class DreamWaQV1OnPolicyRunner:
         # Set device to the local rank
         torch.cuda.set_device(self.gpu_local_rank)
 
-    def _construct_algorithm(self, obs: TensorDict) -> PPODreamWaQV1:
+    def _construct_algorithm(self, obs: TensorDict):
         """Construct the actor-critic algorithm."""
         # Resolve RND config if used
         self.alg_cfg = resolve_rnd_config(self.alg_cfg, obs, self.cfg["obs_groups"], self.env)
@@ -272,22 +267,37 @@ class DreamWaQV1OnPolicyRunner:
                 self.policy_cfg["critic_obs_normalization"] = self.cfg["empirical_normalization"]
 
         # Initialize the policy
-        actor_critic_class = eval(self.policy_cfg.pop("class_name"))
-        actor_critic: ActorCriticDreamWaQ
+        class_name = self.policy_cfg.pop("class_name")
+        try:
+            actor_critic_class = getattr(import_module("rsl_rl.modules"), class_name)
+        except AttributeError as e:
+            raise ValueError(f"Unsupported policy class: {class_name}. {class_name} not found in rsl_rl.modules.") from e
         actor_critic = actor_critic_class(
             obs, self.cfg["obs_groups"], self.env.num_actions, **self.policy_cfg
         ).to(self.device)
 
         # Initialize the storage
-        storage_class = eval(self.alg_cfg.pop("storage_class_name"))
-        storage: RolloutStorageDreamWaQV1
-        storage = storage_class(
-            "rl", self.env.num_envs, self.cfg["num_steps_per_env"], obs, [self.env.num_actions], self.device
-        )
+        if "storage_class_name" in self.alg_cfg:
+            class_name = self.alg_cfg.pop("storage_class_name")
+            try:
+                storage_class = getattr(import_module("rsl_rl.storage"), class_name)
+            except AttributeError as e:
+                raise ValueError(f"Unsupported storage class: {class_name}. {class_name} not found in rsl_rl.storage.") from e
+            storage = storage_class(
+                "rl", self.env.num_envs, self.cfg["num_steps_per_env"], obs, [self.env.num_actions], self.device
+            )
+        else:
+            from rsl_rl.storage import RolloutStorage
+            storage = RolloutStorage(
+                "rl", self.env.num_envs, self.cfg["num_steps_per_env"], obs, [self.env.num_actions], self.device
+            )
 
         # Initialize the algorithm
-        alg_class = eval(self.alg_cfg.pop("class_name"))
-        alg: PPODreamWaQV1
+        class_name = self.alg_cfg.pop("class_name")
+        try:
+            alg_class = getattr(import_module("rsl_rl.algorithms"), class_name)
+        except AttributeError as e:
+            raise ValueError(f"Unsupported algorithm class: {class_name}. {class_name} not found in rsl_rl.algorithms.") from e
         alg = alg_class(
             actor_critic, storage, device=self.device, multi_gpu_cfg=self.multi_gpu_cfg, **self.alg_cfg
         )
