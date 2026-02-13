@@ -27,6 +27,7 @@
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 
+import math
 import os
 import statistics
 import time
@@ -36,7 +37,7 @@ from pathlib import Path
 import torch
 
 from rsl_rl.algorithms import HIMPPO
-from rsl_rl.modules import HIMActorCritic
+from rsl_rl.modules import resolve_symmetry_config, HIMActorCritic
 from rsl_rl.env import VecEnv
 
 
@@ -48,10 +49,12 @@ class HIMOnPolicyRunner:
                  log_dir=None,
                  device='cpu'):
         self.cfg = train_cfg
-        self.alg_cfg = train_cfg["algorithm"]
         self.policy_cfg = train_cfg["policy"]
+        self.alg_cfg = train_cfg["algorithm"]
         self.device = device
         self.env = env
+
+        self.alg_cfg = resolve_symmetry_config(self.alg_cfg, self.env)
 
         if self.env.num_privileged_obs is not None:
             num_critic_obs = self.env.num_privileged_obs
@@ -177,19 +180,19 @@ class HIMOnPolicyRunner:
                 start = stop
                 self.alg.compute_returns(critic_obs)
 
-            mean_value_loss, mean_surrogate_loss, mean_estimation_loss, mean_swap_loss = self.alg.update()
+            mean_value_loss, mean_surrogate_loss, mean_estimation_loss, mean_swap_loss, mean_symmetry_loss = self.alg.update()
             stop = time.time()
             learn_time = stop - start
             self.current_learning_iteration = it
             if self.log_dir is not None:
-                self.log(locals())
+                self.log(locals(), print_minimal=True)
             if it % self.save_interval == 0:
                 self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(it)))
             ep_infos.clear()
 
         self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(self.current_learning_iteration + 1)))
 
-    def log(self, locs, width=80, pad=35):
+    def log(self, locs, print_minimal=False, width=80, pad=35):
         self.tot_timesteps += self.num_steps_per_env * self.env.num_envs
         self.tot_time += locs['collection_time'] + locs['learn_time']
         iteration_time = locs['collection_time'] + locs['learn_time']
@@ -224,6 +227,8 @@ class HIMOnPolicyRunner:
             'estimation': locs['mean_estimation_loss'],
             'swap': locs['mean_swap_loss'],
         }
+        if locs['mean_symmetry_loss'] is not None:
+            loss_dict['symmetry'] = locs['mean_symmetry_loss']
         for key, value in loss_dict.items():
             self.writer.add_scalar(f'Loss/{key}', value, locs['it'])
         self.writer.add_scalar('Loss/learning_rate', self.alg.learning_rate, locs['it'])
@@ -271,13 +276,14 @@ class HIMOnPolicyRunner:
             #     f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n"""
             # )
 
-        log_string += ep_string
+        if not print_minimal:
+            log_string += ep_string
         log_string += (
             f"""{'-' * width}\n"""
             f"""{'Total timesteps:':>{pad}} {self.tot_timesteps}\n"""
             f"""{'Iteration time:':>{pad}} {iteration_time:.2f}s\n"""
-            f"""{'Time elapsed:':>{pad}} {time.strftime("%H:%M:%S", time.gmtime(self.tot_time))}\n"""
-            f"""{'ETA:':>{pad}} {time.strftime("%H:%M:%S", time.gmtime(self.tot_time / (locs['it'] - locs['start_it'] + 1) * (locs['total_it'] - locs['it'] - 1)))}\n"""
+            f"""{'Time elapsed:':>{pad}} {self._format_duration(self.tot_time)}\n"""
+            f"""{'ETA:':>{pad}} {self._format_duration(self.tot_time / (locs['it'] - locs['start_it'] + 1) * (locs['total_it'] - locs['it'] - 1))}\n"""
         )
         print(log_string)
 
@@ -312,3 +318,10 @@ class HIMOnPolicyRunner:
     def export_policy(self, path: Path) -> None:
         obs = self.env.get_observations().to(self.device)
         self.alg.actor_critic.export_policy(obs, path)
+
+    def _format_duration(self, seconds: float) -> str:
+        """Format the duration in hours:minutes:seconds."""
+        seconds = max(0, math.ceil(seconds))
+        hours, remainder = divmod(seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
