@@ -92,11 +92,25 @@ class PPOVQVAEEMA:
             # If function is a string then resolve it to a function
             if isinstance(symmetry_cfg["data_augmentation_func"], str):
                 symmetry_cfg["data_augmentation_func"] = string_to_callable(symmetry_cfg["data_augmentation_func"])
+            if isinstance(symmetry_cfg["lin_vel_augmentation_func"], str):
+                symmetry_cfg["lin_vel_augmentation_func"] = string_to_callable(symmetry_cfg["lin_vel_augmentation_func"])
+            if isinstance(symmetry_cfg["reconstructed_obs_augmentation_func"], str):
+                symmetry_cfg["reconstructed_obs_augmentation_func"] = string_to_callable(symmetry_cfg["reconstructed_obs_augmentation_func"])
             # Check valid configuration
             if not callable(symmetry_cfg["data_augmentation_func"]):
                 raise ValueError(
                     f"Symmetry configuration exists but the function is not callable: "
                     f"{symmetry_cfg['data_augmentation_func']}"
+                )
+            if not callable(symmetry_cfg["lin_vel_augmentation_func"]):
+                raise ValueError(
+                    f"Symmetry configuration exists but the function is not callable: "
+                    f"{symmetry_cfg['lin_vel_augmentation_func']}"
+                )
+            if not callable(symmetry_cfg["reconstructed_obs_augmentation_func"]):
+                raise ValueError(
+                    f"Symmetry configuration exists but the function is not callable: "
+                    f"{symmetry_cfg['reconstructed_obs_augmentation_func']}"
                 )
             # Check if the policy is compatible with symmetry
             if isinstance(policy, ActorCriticRecurrent):
@@ -289,11 +303,21 @@ class PPOVQVAEEMA:
             if self.symmetry and self.symmetry["use_data_augmentation"]:
                 # Augmentation using symmetry
                 data_augmentation_func = self.symmetry["data_augmentation_func"]
+                lin_vel_augmentation_func = self.symmetry["lin_vel_augmentation_func"]
+                reconstructed_obs_augmentation_func = self.symmetry["reconstructed_obs_augmentation_func"]
                 # Returned shape: [batch_size * num_aug, ...]
                 obs_batch, actions_batch = data_augmentation_func(
                     obs=obs_batch,
                     actions=actions_batch,
                     env=self.symmetry["_env"],
+                )
+                lin_vel_targets_batch = lin_vel_augmentation_func(
+                    lin_vel=lin_vel_targets_batch,
+                    env=self.symmetry["_env"]
+                )
+                reconstructed_obs_targets_batch = reconstructed_obs_augmentation_func(
+                    reconstructed_obs=reconstructed_obs_targets_batch,
+                    env=self.symmetry["_env"]
                 )
                 # Compute number of augmentations per sample
                 num_aug = int(obs_batch.batch_size[0] / original_batch_size)
@@ -302,6 +326,7 @@ class PPOVQVAEEMA:
                 target_values_batch = target_values_batch.repeat(num_aug, 1)
                 advantages_batch = advantages_batch.repeat(num_aug, 1)
                 returns_batch = returns_batch.repeat(num_aug, 1)
+                dones_batch = dones_batch.repeat(num_aug)
 
             # Recompute actions log prob and entropy for current batch of transitions
             # Note: We need to do this because we updated the policy with the new parameters
