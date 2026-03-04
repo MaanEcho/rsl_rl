@@ -10,6 +10,7 @@ from .ppo import PPO
 
 from .DreamWaQ.ppo_DreamWaQ import PPODreamWaQ
 from .DreamWaQ.ppo_DreamWaQV1 import PPODreamWaQV1
+from .DreamWaQ.ppo_DreamWaQ_v2 import PPODreamWaQV2
 from .HIMLoco.him_ppo import HIMPPO
 from .VQVAE.ppo_VQVAE import PPOVQVAE
 from .VQVAE.ppo_VQVAE_EMA import PPOVQVAEEMA
@@ -19,6 +20,7 @@ __all__ = [
     "Distillation",
     "PPODreamWaQ",
     "PPODreamWaQV1",
+    "PPODreamWaQV2",
     "HIMPPO",
     "PPOVQVAE",
     "PPOVQVAEEMA",
