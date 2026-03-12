@@ -94,6 +94,8 @@ class PPODreamWaQV2:
                 symmetry_cfg["data_augmentation_func"] = string_to_callable(symmetry_cfg["data_augmentation_func"])
             if isinstance(symmetry_cfg["lin_vel_augmentation_func"], str):
                 symmetry_cfg["lin_vel_augmentation_func"] = string_to_callable(symmetry_cfg["lin_vel_augmentation_func"])
+            if isinstance(symmetry_cfg["feet_clearances_augmentation_func"], str):
+                symmetry_cfg["feet_clearances_augmentation_func"] = string_to_callable(symmetry_cfg["feet_clearances_augmentation_func"])
             if isinstance(symmetry_cfg["reconstructed_obs_augmentation_func"], str):
                 symmetry_cfg["reconstructed_obs_augmentation_func"] = string_to_callable(symmetry_cfg["reconstructed_obs_augmentation_func"])
             # Check valid configuration
@@ -106,6 +108,11 @@ class PPODreamWaQV2:
                 raise ValueError(
                     f"Symmetry configuration exists but the function is not callable: "
                     f"{symmetry_cfg['lin_vel_augmentation_func']}"
+                )
+            if not callable(symmetry_cfg["feet_clearances_augmentation_func"]):
+                raise ValueError(
+                    f"Symmetry configuration exists but the function is not callable: "
+                    f"{symmetry_cfg['feet_clearances_augmentation_func']}"
                 )
             if not callable(symmetry_cfg["reconstructed_obs_augmentation_func"]):
                 raise ValueError(
@@ -258,7 +265,6 @@ class PPODreamWaQV2:
         # CENet loss
         mean_cenet_loss = 0
         mean_vel_est_loss = 0
-        mean_base_height_est_loss = 0
         mean_feet_clearances_est_loss = 0
         mean_vae_loss = 0
         mean_reconstruction_loss = 0
@@ -285,7 +291,6 @@ class PPODreamWaQV2:
             old_mu_batch,
             old_sigma_batch,
             lin_vel_targets_batch,
-            base_height_targets_batch,
             feet_clearances_targets_batch,
             reconstructed_obs_targets_batch,
             dones_batch,
@@ -305,6 +310,7 @@ class PPODreamWaQV2:
                 # Augmentation using symmetry
                 data_augmentation_func = self.symmetry["data_augmentation_func"]
                 lin_vel_augmentation_func = self.symmetry["lin_vel_augmentation_func"]
+                feet_clearances_augmentation_func = self.symmetry["feet_clearances_augmentation_func"]
                 reconstructed_obs_augmentation_func = self.symmetry["reconstructed_obs_augmentation_func"]
                 # Returned shape: [batch_size * num_aug, ...]
                 obs_batch, actions_batch = data_augmentation_func(
@@ -314,6 +320,10 @@ class PPODreamWaQV2:
                 )
                 lin_vel_targets_batch = lin_vel_augmentation_func(
                     lin_vel=lin_vel_targets_batch,
+                    env=self.symmetry["_env"]
+                )
+                feet_clearances_targets_batch = feet_clearances_augmentation_func(
+                    feet_clearances=feet_clearances_targets_batch,
                     env=self.symmetry["_env"]
                 )
                 reconstructed_obs_targets_batch = reconstructed_obs_augmentation_func(
@@ -331,9 +341,9 @@ class PPODreamWaQV2:
 
             # Recompute actions log prob and entropy for current batch of transitions
             # Note: We need to do this because we updated the policy with the new parameters
-            encode_lin_vel_batch, encode_base_height_batch, encode_feet_clearances_batch, encode_context_batch, context_mean_batch, context_logvar_batch = self.policy.act(obs_batch, self.bootstrap, stage="update", masks=masks_batch, hidden_state=hidden_states_batch[0])
-            estimated_states_batch = torch.cat((encode_lin_vel_batch, encode_base_height_batch, encode_feet_clearances_batch), dim=-1)
-            states_batch = torch.cat((lin_vel_targets_batch, base_height_targets_batch, feet_clearances_targets_batch), dim=-1)
+            encode_lin_vel_batch, encode_feet_clearances_batch, encode_context_batch, context_mean_batch, context_logvar_batch = self.policy.act(obs_batch, self.bootstrap, stage="update", masks=masks_batch, hidden_state=hidden_states_batch[0])
+            estimated_states_batch = torch.cat((encode_lin_vel_batch, encode_feet_clearances_batch), dim=-1)
+            states_batch = torch.cat((lin_vel_targets_batch, feet_clearances_targets_batch), dim=-1)
             reconstructed_obs_batch = self.policy.cenet.decode(estimated_states_batch, states_batch, self.bootstrap, encode_context_batch)
             actions_log_prob_batch = self.policy.get_actions_log_prob(actions_batch)
             value_batch = self.policy.evaluate(obs_batch, masks=masks_batch, hidden_state=hidden_states_batch[1])
@@ -402,8 +412,6 @@ class PPODreamWaQV2:
             # CENet loss
             encode_lin_vel_normalized_batch = self.policy.actor_lin_vel_normalizer(encode_lin_vel_batch)
             lin_vel_targets_normalized_batch = self.policy.actor_lin_vel_normalizer(lin_vel_targets_batch)
-            encode_base_height_normalized_batch = self.policy.actor_base_height_normalizer(encode_base_height_batch)
-            base_height_targets_normalized_batch = self.policy.actor_base_height_normalizer(base_height_targets_batch)
             encode_feet_clearances_normalized_batch = self.policy.actor_feet_clearances_normalizer(encode_feet_clearances_batch)
             feet_clearances_targets_normalized_batch = self.policy.actor_feet_clearances_normalizer(feet_clearances_targets_batch)
             reconstructed_obs_normalized_batch = self.policy.actor_obs_normalizer(reconstructed_obs_batch)
@@ -411,12 +419,11 @@ class PPODreamWaQV2:
 
             valid = (dones_batch == 0)
             vel_est_loss = nn.functional.mse_loss(encode_lin_vel_normalized_batch[valid], lin_vel_targets_normalized_batch[valid])
-            base_height_est_loss = nn.functional.mse_loss(encode_base_height_normalized_batch[valid], base_height_targets_normalized_batch[valid])
             feet_clearances_est_loss = nn.functional.mse_loss(encode_feet_clearances_normalized_batch[valid], feet_clearances_targets_normalized_batch[valid])
             reconstruction_loss = nn.functional.mse_loss(reconstructed_obs_normalized_batch[valid], reconstructed_obs_targets_normalized_batch[valid])
             latent_loss = torch.mean(-0.5 * torch.sum(1 + context_logvar_batch[valid] - context_mean_batch[valid].square() - context_logvar_batch[valid].exp(), dim=-1))
 
-            cenet_loss = vel_est_loss + base_height_est_loss + feet_clearances_est_loss + reconstruction_loss + self.beta * latent_loss
+            cenet_loss = vel_est_loss + feet_clearances_est_loss + reconstruction_loss + self.beta * latent_loss
 
             # Symmetry loss
             if self.symmetry:
@@ -503,9 +510,8 @@ class PPODreamWaQV2:
             # CENet loss
             mean_cenet_loss += cenet_loss.item()
             mean_vel_est_loss += vel_est_loss.item()
-            mean_base_height_est_loss += base_height_est_loss.item()
             mean_feet_clearances_est_loss += feet_clearances_est_loss.item()
-            mean_vae_loss += (cenet_loss.item() - vel_est_loss.item() - base_height_est_loss.item() - feet_clearances_est_loss.item())
+            mean_vae_loss += (cenet_loss.item() - vel_est_loss.item() - feet_clearances_est_loss.item())
             mean_reconstruction_loss += reconstruction_loss.item()
             mean_latent_loss += latent_loss.item()
             # RND loss
@@ -527,7 +533,6 @@ class PPODreamWaQV2:
         mean_entropy /= num_updates
         mean_cenet_loss /= num_updates
         mean_vel_est_loss /= num_updates
-        mean_base_height_est_loss /= num_updates
         mean_feet_clearances_est_loss /= num_updates
         mean_vae_loss /= num_updates
         mean_reconstruction_loss /= num_updates
@@ -549,7 +554,6 @@ class PPODreamWaQV2:
             "entropy": mean_entropy,
             "cenet": mean_cenet_loss,
             "vel_est": mean_vel_est_loss,
-            "base_height_est": mean_base_height_est_loss,
             "feet_clearances_est": mean_feet_clearances_est_loss,
             "vae": mean_vae_loss,
             "reconstruction": mean_reconstruction_loss,

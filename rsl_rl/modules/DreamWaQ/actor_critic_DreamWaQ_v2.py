@@ -98,6 +98,7 @@ class ActorCriticDreamWaQV2(nn.Module):
                 self.critic_obs_normalizer = EmpiricalNormalization(critic_obs_normalization_dim)
                 for key in cenet_cfg["estimated_state_dims"]:
                     setattr(self, f"critic_{key}_normalizer", EmpiricalNormalization(cenet_cfg["estimated_state_dims"][key]))
+            self.critic_base_height_normalizer = EmpiricalNormalization(1)
             self.critic_feet_contact_forces_normalizer = EmpiricalNormalization(3 * 4)
             self.critic_joint_accs_normalizer = EmpiricalNormalization(num_actions)
             self.critic_joint_efforts_normalizer = EmpiricalNormalization(num_actions)
@@ -105,6 +106,7 @@ class ActorCriticDreamWaQV2(nn.Module):
             self.critic_obs_normalizer = torch.nn.Identity()
             for key in cenet_cfg["estimated_state_dims"]:
                 setattr(self, f"critic_{key}_normalizer", torch.nn.Identity())
+            self.critic_base_height_normalizer = torch.nn.Identity()
             self.critic_feet_contact_forces_normalizer = torch.nn.Identity()
             self.critic_joint_accs_normalizer = torch.nn.Identity()
             self.critic_joint_efforts_normalizer = torch.nn.Identity()
@@ -183,25 +185,22 @@ class ActorCriticDreamWaQV2(nn.Module):
             curr_obs, history_obs = self.get_actor_obs(obs, "all")
             curr_obs_normalized = self.actor_obs_normalizer(curr_obs)
             history_obs_normalized = self.actor_obs_normalizer(history_obs.reshape(-1, curr_obs.shape[-1])).reshape(curr_obs.shape[0], -1)
-        encode_lin_vel, encode_base_height, encode_feet_clearances, encode_context, context_mean, context_logvar = self.cenet.encode(history_obs_normalized)
+        encode_lin_vel, encode_feet_clearances, encode_context, context_mean, context_logvar = self.cenet.encode(history_obs_normalized)
         with torch.no_grad():
             if bootstrap:
                 lin_vel_normalized = self.actor_lin_vel_normalizer(encode_lin_vel)
-                base_height_normalized = self.actor_base_height_normalizer(encode_base_height)
                 feet_clearances_normalized = self.actor_feet_clearances_normalizer(encode_feet_clearances)
             else:
                 lin_vel = obs["privileged"][:, :3]
-                base_height = obs["privileged"][:, 3:4]
                 feet_clearances = obs["privileged"][:, 4:8]
                 lin_vel_normalized = self.actor_lin_vel_normalizer(lin_vel)
-                base_height_normalized = self.actor_base_height_normalizer(base_height)
                 feet_clearances_normalized = self.actor_feet_clearances_normalizer(feet_clearances)
-        actor_obs = torch.cat((curr_obs_normalized, lin_vel_normalized.detach(), base_height_normalized.detach(), feet_clearances_normalized.detach(), encode_context.detach()), dim=-1)
+        actor_obs = torch.cat((curr_obs_normalized, lin_vel_normalized.detach(), feet_clearances_normalized.detach(), encode_context.detach()), dim=-1)
         self._update_distribution(actor_obs)
         if stage == "rollout":
             return self.distribution.sample()
         elif stage == "update":
-            return encode_lin_vel, encode_base_height, encode_feet_clearances, encode_context, context_mean, context_logvar
+            return encode_lin_vel, encode_feet_clearances, encode_context, context_mean, context_logvar
         else:
             raise ValueError(f"Unknown stage: {stage}. Please choose 'rollout' or 'update'")
 
@@ -209,11 +208,10 @@ class ActorCriticDreamWaQV2(nn.Module):
         curr_obs, history_obs = self.get_actor_obs(obs, "all")
         curr_obs_normalized = self.actor_obs_normalizer(curr_obs)
         history_obs_normalized = self.actor_obs_normalizer(history_obs.reshape(-1, curr_obs.shape[-1])).reshape(curr_obs.shape[0], -1)
-        encode_lin_vel, encode_base_height, encode_feet_clearances, _, context_mean, _ = self.cenet.encode(history_obs_normalized)
+        encode_lin_vel, encode_feet_clearances, _, context_mean, _ = self.cenet.encode(history_obs_normalized)
         lin_vel_normalized = self.actor_lin_vel_normalizer(encode_lin_vel)
-        base_height_normalized = self.actor_base_height_normalizer(encode_base_height)
         feet_clearances_normalized = self.actor_feet_clearances_normalizer(encode_feet_clearances)
-        actor_obs = torch.cat((curr_obs_normalized, lin_vel_normalized.detach(), base_height_normalized.detach(), feet_clearances_normalized.detach(), context_mean.detach()), dim=-1)
+        actor_obs = torch.cat((curr_obs_normalized, lin_vel_normalized.detach(), feet_clearances_normalized.detach(), context_mean.detach()), dim=-1)
         if self.state_dependent_std:
             return self.actor(actor_obs)[..., 0, :]
         else:
@@ -227,7 +225,7 @@ class ActorCriticDreamWaQV2(nn.Module):
             base_height_normalized = self.critic_base_height_normalizer(obs_list[1][:, 3:4])
             feet_clearances_normalized = self.critic_feet_clearances_normalizer(obs_list[1][:, 4:8])
             feet_contact_forces_normalized = self.critic_feet_contact_forces_normalizer(obs_list[1][:, 8:20])
-            others = obs_list[1][:, 20:20 + 4 + 1 + 1 + 3 + 3 + 3 + 8 + 4]
+            others = obs_list[1][:, 20:20 + 4 + 1 + 1 + 3 + 3 + 8 + 4]
             joint_accs_normalized = self.critic_joint_accs_normalizer(obs_list[1][:, -24:-12])
             joint_efforts_normalized = self.critic_joint_efforts_normalizer(obs_list[1][:, -12:])
             height_scan = obs_list[2]
@@ -259,7 +257,6 @@ class ActorCriticDreamWaQV2(nn.Module):
             obs_list = self.get_critic_obs(obs)
             self.actor_obs_normalizer.update(obs_list[0])
             self.actor_lin_vel_normalizer.update(obs_list[1][:, :3])
-            self.actor_base_height_normalizer.update(obs_list[1][:, 3:4])
             self.actor_feet_clearances_normalizer.update(obs_list[1][:, 4:8])
         if self.critic_obs_normalization and not self.actor_obs_normalization:
             obs_list = self.get_critic_obs(obs)
@@ -350,7 +347,6 @@ class CENet(nn.Module):
         decoder_hidden_dims: tuple[int] | list[int] = [64, 128],
         encoder_head_hidden_dims: dict[str, tuple[int] | list[int] | None] = {
             "lin_vel": None,
-            "base_height": None,
             "feet_clearances": None,
             "context_mean": None,
             "context_logvar": None,
@@ -358,7 +354,6 @@ class CENet(nn.Module):
         encoder_output_dim: int = 64,
         estimated_state_dims: dict[str, int] = {
             "lin_vel": 3,
-            "base_height": 1,
             "feet_clearances": 4,
         },
         latent_state_dim: int = 16,
@@ -396,16 +391,15 @@ class CENet(nn.Module):
         # Decoder
         self.decoder = MLP(decoder_input_dim, decoder_output_dim, decoder_hidden_dims, activation)
 
-    def encode(self, obs_hist: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def encode(self, obs_hist: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         feature = self.encoder(obs_hist)
         encode_lin_vel = self.encoder_head_lin_vel(feature)
-        encode_base_height = self.encoder_head_base_height(feature)
         encode_feet_clearances = self.encoder_head_feet_clearances(feature)
         context_mean = self.encoder_head_context_mean(feature)
         context_logvar = self.encoder_head_context_logvar(feature)
         context_logvar_clipped = (0.5 * context_logvar).exp().clip(1.0e-6, 5.0).square().log()
         encode_context = self.reparameterize(context_mean, context_logvar_clipped)
-        return encode_lin_vel, encode_base_height, encode_feet_clearances, encode_context, context_mean, context_logvar_clipped
+        return encode_lin_vel, encode_feet_clearances, encode_context, context_mean, context_logvar_clipped
 
     def decode(self, estimated_states: torch.Tensor, states: torch.Tensor, bootstrap: bool, context: torch.Tensor) -> torch.Tensor:
         if bootstrap:
@@ -427,12 +421,10 @@ class InferenceWrapper(nn.Module):
         self.actor = models.actor
         self.encoder = models.cenet.encoder
         self.encoder_head_lin_vel = models.cenet.encoder_head_lin_vel
-        self.encoder_head_base_height = models.cenet.encoder_head_base_height
         self.encoder_head_feet_clearances = models.cenet.encoder_head_feet_clearances
         self.encoder_head_context_mean = models.cenet.encoder_head_context_mean
         self.actor_obs_normalizer = models.actor_obs_normalizer
         self.actor_lin_vel_normalizer = models.actor_lin_vel_normalizer
-        self.actor_base_height_normalizer = models.actor_base_height_normalizer
         self.actor_feet_clearances_normalizer = models.actor_feet_clearances_normalizer
 
         self.state_dependent_std = models.state_dependent_std
@@ -444,13 +436,11 @@ class InferenceWrapper(nn.Module):
         obs_hist_normalized = self.actor_obs_normalizer(obs_hist.reshape(-1, obs.shape[-1])).reshape(obs.shape[0], -1)
         feature = self.encoder(obs_hist_normalized)
         encode_lin_vel = self.encoder_head_lin_vel(feature)
-        encode_base_height = self.encoder_head_base_height(feature)
         encode_feet_clearances = self.encoder_head_feet_clearances(feature)
         context_mean = self.encoder_head_context_mean(feature)
         lin_vel_normalized = self.actor_lin_vel_normalizer(encode_lin_vel)
-        base_height_normalized = self.actor_base_height_normalizer(encode_base_height)
         feet_clearances_normalized = self.actor_feet_clearances_normalizer(encode_feet_clearances)
-        actor_obs = torch.cat((obs_normalized, lin_vel_normalized, base_height_normalized, feet_clearances_normalized, context_mean), dim=-1)
+        actor_obs = torch.cat((obs_normalized, lin_vel_normalized, feet_clearances_normalized, context_mean), dim=-1)
         if self.state_dependent_std:
             return self.actor(actor_obs)[..., 0, :]
         else:

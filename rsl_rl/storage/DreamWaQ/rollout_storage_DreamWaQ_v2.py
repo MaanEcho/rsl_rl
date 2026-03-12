@@ -146,7 +146,6 @@ class RolloutStorageDreamWaQV2:
 
         # For CENet
         lin_vel_targets = observations["privileged"][:, :3]
-        base_height_targets = observations["privileged"][:, 3:4]
         feet_clearances_targets = observations["privileged"][:, 4:8]
         next_observations = self.next_observations.flatten(0, 1)
         reconstructed_obs_targets = next_observations["proprioception"]
@@ -169,7 +168,6 @@ class RolloutStorageDreamWaQV2:
                 old_mu_batch = old_mu[batch_idx]
                 old_sigma_batch = old_sigma[batch_idx]
                 lin_vel_targets_batch = lin_vel_targets[batch_idx]
-                base_height_targets_batch = base_height_targets[batch_idx]
                 feet_clearances_targets_batch = feet_clearances_targets[batch_idx]
                 reconstructed_obs_targets_batch = reconstructed_obs_targets[batch_idx]
                 dones_batch = dones[batch_idx]
@@ -189,7 +187,6 @@ class RolloutStorageDreamWaQV2:
                     old_mu_batch,
                     old_sigma_batch,
                     lin_vel_targets_batch,
-                    base_height_targets_batch,
                     feet_clearances_targets_batch,
                     reconstructed_obs_targets_batch,
                     dones_batch,
