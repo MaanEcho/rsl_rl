@@ -13,6 +13,7 @@ from .student_teacher import StudentTeacher
 from .student_teacher_recurrent import StudentTeacherRecurrent
 from .symmetry import resolve_symmetry_config
 
+from .Standard.actor_critic_Standard import ActorCriticStandard
 from .DreamWaQ.actor_critic_DreamWaQ import ActorCriticDreamWaQ
 from .DreamWaQ.actor_critic_DreamWaQ_v2 import ActorCriticDreamWaQV2
 from .HIMLoco.him_actor_critic import HIMActorCritic
@@ -28,6 +29,7 @@ __all__ = [
     "StudentTeacherRecurrent",
     "resolve_rnd_config",
     "resolve_symmetry_config",
+    "ActorCriticStandard",
     "ActorCriticDreamWaQ",
     "ActorCriticDreamWaQV2",
     "HIMActorCritic",

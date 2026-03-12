@@ -8,6 +8,7 @@
 from .distillation import Distillation
 from .ppo import PPO
 
+from .Standard.ppo_Standard import PPOStandard
 from .DreamWaQ.ppo_DreamWaQ import PPODreamWaQ
 from .DreamWaQ.ppo_DreamWaQV1 import PPODreamWaQV1
 from .DreamWaQ.ppo_DreamWaQ_v2 import PPODreamWaQV2
@@ -18,6 +19,7 @@ from .VQVAE.ppo_VQVAE_EMA import PPOVQVAEEMA
 __all__ = [
     "PPO",
     "Distillation",
+    "PPOStandard",
     "PPODreamWaQ",
     "PPODreamWaQV1",
     "PPODreamWaQV2",
