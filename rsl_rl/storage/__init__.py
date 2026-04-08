@@ -12,5 +12,6 @@ from .DreamWaQ.rollout_storage_DreamWaQV1 import RolloutStorageDreamWaQV1
 from .DreamWaQ.rollout_storage_DreamWaQ_v2 import RolloutStorageDreamWaQV2
 from .HIMLoco.him_rollout_storage import HIMRolloutStorage
 from .VQVAE.rollout_storage_VQVAE import RolloutStorageVQVAE
+from .PIE.rollout_storage_PIE import RolloutStoragePIE
 
-__all__ = ["RolloutStorage", "RolloutStorageDreamWaQ", "RolloutStorageDreamWaQV1", "RolloutStorageDreamWaQV2", "HIMRolloutStorage", "RolloutStorageVQVAE"]
+__all__ = ["RolloutStorage", "RolloutStorageDreamWaQ", "RolloutStorageDreamWaQV1", "RolloutStorageDreamWaQV2", "HIMRolloutStorage", "RolloutStorageVQVAE", "RolloutStoragePIE"]

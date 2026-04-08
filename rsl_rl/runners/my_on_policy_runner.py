@@ -132,6 +132,9 @@ class MyOnPolicyRunner:
         # Save CENet optimizer if exists
         if getattr(self.alg, "cenet_optimizer", None) is not None:
             saved_dict["cenet_optimizer_state_dict"] = self.alg.cenet_optimizer.state_dict()
+        # Save Estimator optimizer if exists
+        if getattr(self.alg, "estimator_optimizer", None) is not None:
+            saved_dict["estimator_optimizer_state_dict"] = self.alg.estimator_optimizer.state_dict()
         # Save RND model if used
         if self.alg_cfg["rnd_cfg"]:
             saved_dict["rnd_state_dict"] = self.alg.rnd.state_dict()
