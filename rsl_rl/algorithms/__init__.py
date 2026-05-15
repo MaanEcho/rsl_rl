@@ -16,6 +16,7 @@ from .HIMLoco.him_ppo import HIMPPO
 from .VQVAE.ppo_VQVAE import PPOVQVAE
 from .VQVAE.ppo_VQVAE_EMA import PPOVQVAEEMA
 from .Estimator.ppo_Estimator import PPOEstimator
+from .Estimator.ppo_Estimator_v1 import PPOEstimatorV1
 from .PIE.ppo_PIE import PPOPIE
 
 __all__ = [
@@ -29,5 +30,6 @@ __all__ = [
     "PPOVQVAE",
     "PPOVQVAEEMA",
     "PPOEstimator",
+    "PPOEstimatorV1",
     "PPOPIE",
 ]

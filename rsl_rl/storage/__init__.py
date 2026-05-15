@@ -13,6 +13,7 @@ from .DreamWaQ.rollout_storage_DreamWaQ_v2 import RolloutStorageDreamWaQV2
 from .HIMLoco.him_rollout_storage import HIMRolloutStorage
 from .VQVAE.rollout_storage_VQVAE import RolloutStorageVQVAE
 from .Estimator.rollout_storage_Estimator import RolloutStorageEstimator
+from .Estimator.rollout_storage_Estimator_v1 import RolloutStorageEstimatorV1
 from .PIE.rollout_storage_PIE import RolloutStoragePIE
 
 __all__ = [
@@ -23,5 +24,6 @@ __all__ = [
     "HIMRolloutStorage",
     "RolloutStorageVQVAE",
     "RolloutStorageEstimator",
+    "RolloutStorageEstimatorV1",
     "RolloutStoragePIE",
 ]
