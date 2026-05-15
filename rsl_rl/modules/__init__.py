@@ -19,6 +19,7 @@ from .DreamWaQ.actor_critic_DreamWaQ_v2 import ActorCriticDreamWaQV2
 from .HIMLoco.him_actor_critic import HIMActorCritic
 from .VQVAE.actor_critic_VQVAE import ActorCriticVQVAE
 from .VQVAE.actor_critic_VQVAE_EMA import ActorCriticVQVAEEMA
+from .Estimator.actor_critic_Estimator import ActorCriticEstimator
 from .PIE.actor_critic_PIE import ActorCriticPIE
 
 __all__ = [
@@ -36,5 +37,6 @@ __all__ = [
     "HIMActorCritic",
     "ActorCriticVQVAE",
     "ActorCriticVQVAEEMA",
+    "ActorCriticEstimator",
     "ActorCriticPIE",
 ]

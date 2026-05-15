@@ -15,6 +15,7 @@ from .DreamWaQ.ppo_DreamWaQ_v2 import PPODreamWaQV2
 from .HIMLoco.him_ppo import HIMPPO
 from .VQVAE.ppo_VQVAE import PPOVQVAE
 from .VQVAE.ppo_VQVAE_EMA import PPOVQVAEEMA
+from .Estimator.ppo_Estimator import PPOEstimator
 from .PIE.ppo_PIE import PPOPIE
 
 __all__ = [
@@ -27,5 +28,6 @@ __all__ = [
     "HIMPPO",
     "PPOVQVAE",
     "PPOVQVAEEMA",
+    "PPOEstimator",
     "PPOPIE",
 ]
