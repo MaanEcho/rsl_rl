@@ -181,7 +181,7 @@ class ActorCriticEstimator(nn.Module):
             curr_obs, history_obs = self.get_actor_obs(obs, "all")
             curr_obs_normalized = self.actor_obs_normalizer(curr_obs)
             history_obs_normalized = self.actor_obs_normalizer(history_obs.reshape(-1, curr_obs.shape[-1])).reshape(curr_obs.shape[0], -1)
-        encode_lin_vel, encode_feet_clearances, encode_context= self.cenet.encode(history_obs_normalized)
+        encode_lin_vel, encode_feet_clearances, encode_context, _ = self.cenet.encode(history_obs_normalized)
         with torch.no_grad():
             if bootstrap:
                 lin_vel_normalized = self.actor_lin_vel_normalizer(encode_lin_vel)
@@ -204,7 +204,7 @@ class ActorCriticEstimator(nn.Module):
         curr_obs, history_obs = self.get_actor_obs(obs, "all")
         curr_obs_normalized = self.actor_obs_normalizer(curr_obs)
         history_obs_normalized = self.actor_obs_normalizer(history_obs.reshape(-1, curr_obs.shape[-1])).reshape(curr_obs.shape[0], -1)
-        encode_lin_vel, encode_feet_clearances, _, context_mean, _ = self.cenet.encode(history_obs_normalized)
+        encode_lin_vel, encode_feet_clearances, _, context_mean = self.cenet.encode(history_obs_normalized)
         lin_vel_normalized = self.actor_lin_vel_normalizer(encode_lin_vel)
         feet_clearances_normalized = self.actor_feet_clearances_normalizer(encode_feet_clearances)
         actor_obs = torch.cat((curr_obs_normalized, lin_vel_normalized.detach(), feet_clearances_normalized.detach(), context_mean.detach()), dim=-1)
@@ -372,7 +372,7 @@ class CENet(nn.Module):
             else:
                 setattr(self, f"encoder_head_{key}", nn.Linear(encoder_output_dim, latent_state_dim if "context" in key else estimated_state_dims[key]))
 
-    def encode(self, obs_hist: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def encode(self, obs_hist: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         feature = self.encoder(obs_hist)
         encode_lin_vel = self.encoder_head_lin_vel(feature)
         encode_feet_clearances = self.encoder_head_feet_clearances(feature)
@@ -380,8 +380,9 @@ class CENet(nn.Module):
         context_logvar = self.encoder_head_context_logvar(feature)
         context_logvar_clipped = (0.5 * context_logvar).exp().clip(1.0e-6, 5.0).square().log()
         encode_context = self.reparameterize(context_mean, context_logvar_clipped)
+        context_mean = nn.functional.normalize(context_mean, p=2, dim=-1)
         encode_context = nn.functional.normalize(encode_context, p=2, dim=-1)
-        return encode_lin_vel, encode_feet_clearances, encode_context
+        return encode_lin_vel, encode_feet_clearances, encode_context, context_mean
 
     def reparameterize(self, mean: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
         std = torch.exp(0.5 * logvar)
