@@ -159,6 +159,9 @@ class MyOnPolicyRunner:
             # CENet optimizer if exists
             if getattr(self.alg, "cenet_optimizer", None) is not None:
                 self.alg.cenet_optimizer.load_state_dict(loaded_dict["cenet_optimizer_state_dict"])
+            # Estimator optimizer if exists
+            if getattr(self.alg, "estimator_optimizer", None) is not None:
+                self.alg.estimator_optimizer.load_state_dict(loaded_dict["estimator_optimizer_state_dict"])
             # RND optimizer if used
             if self.alg_cfg["rnd_cfg"]:
                 self.alg.rnd_optimizer.load_state_dict(loaded_dict["rnd_optimizer_state_dict"])
