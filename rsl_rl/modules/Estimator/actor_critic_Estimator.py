@@ -176,12 +176,12 @@ class ActorCriticEstimator(nn.Module):
         # Create distribution
         self.distribution = Normal(mean, std)
 
-    def act(self, obs: TensorDict, bootstrap: bool, stage: Literal["rollout", "update"], **kwargs: dict[str, Any]) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def act(self, obs: TensorDict, bootstrap: bool, stage: Literal["rollout", "update"], **kwargs: dict[str, Any]) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         with torch.no_grad():
             curr_obs, history_obs = self.get_actor_obs(obs, "all")
             curr_obs_normalized = self.actor_obs_normalizer(curr_obs)
             history_obs_normalized = self.actor_obs_normalizer(history_obs.reshape(-1, curr_obs.shape[-1])).reshape(curr_obs.shape[0], -1)
-        encode_lin_vel, encode_feet_clearances, encode_context, context_mean, context_logvar = self.cenet.encode(history_obs_normalized)
+        encode_lin_vel, encode_feet_clearances, encode_context= self.cenet.encode(history_obs_normalized)
         with torch.no_grad():
             if bootstrap:
                 lin_vel_normalized = self.actor_lin_vel_normalizer(encode_lin_vel)
@@ -196,7 +196,7 @@ class ActorCriticEstimator(nn.Module):
         if stage == "rollout":
             return self.distribution.sample()
         elif stage == "update":
-            return encode_lin_vel, encode_feet_clearances, encode_context, context_mean, context_logvar
+            return encode_lin_vel, encode_feet_clearances
         else:
             raise ValueError(f"Unknown stage: {stage}. Please choose 'rollout' or 'update'")
 
@@ -372,7 +372,7 @@ class CENet(nn.Module):
             else:
                 setattr(self, f"encoder_head_{key}", nn.Linear(encoder_output_dim, latent_state_dim if "context" in key else estimated_state_dims[key]))
 
-    def encode(self, obs_hist: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def encode(self, obs_hist: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         feature = self.encoder(obs_hist)
         encode_lin_vel = self.encoder_head_lin_vel(feature)
         encode_feet_clearances = self.encoder_head_feet_clearances(feature)
@@ -380,7 +380,8 @@ class CENet(nn.Module):
         context_logvar = self.encoder_head_context_logvar(feature)
         context_logvar_clipped = (0.5 * context_logvar).exp().clip(1.0e-6, 5.0).square().log()
         encode_context = self.reparameterize(context_mean, context_logvar_clipped)
-        return encode_lin_vel, encode_feet_clearances, encode_context, context_mean, context_logvar_clipped
+        encode_context = nn.functional.normalize(encode_context, p=2, dim=-1)
+        return encode_lin_vel, encode_feet_clearances, encode_context
 
     def reparameterize(self, mean: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
         std = torch.exp(0.5 * logvar)
@@ -415,7 +416,8 @@ class InferenceWrapper(nn.Module):
         context_mean = self.encoder_head_context_mean(feature)
         lin_vel_normalized = self.actor_lin_vel_normalizer(encode_lin_vel)
         feet_clearances_normalized = self.actor_feet_clearances_normalizer(encode_feet_clearances)
-        actor_obs = torch.cat((obs_normalized, lin_vel_normalized, feet_clearances_normalized, context_mean), dim=-1)
+        context_mean_normalized = nn.functional.normalize(context_mean, p=2, dim=-1)
+        actor_obs = torch.cat((obs_normalized, lin_vel_normalized, feet_clearances_normalized, context_mean_normalized), dim=-1)
         if self.state_dependent_std:
             return self.actor(actor_obs)[..., 0, :]
         else:

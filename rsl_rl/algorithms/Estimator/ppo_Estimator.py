@@ -336,7 +336,7 @@ class PPOEstimator:
 
             # Recompute actions log prob and entropy for current batch of transitions
             # Note: We need to do this because we updated the policy with the new parameters
-            encode_lin_vel_batch, encode_feet_clearances_batch, encode_context_batch, context_mean_batch, context_logvar_batch = self.policy.act(obs_batch, self.bootstrap, stage="update", masks=masks_batch, hidden_state=hidden_states_batch[0])
+            encode_lin_vel_batch, encode_feet_clearances_batch = self.policy.act(obs_batch, self.bootstrap, stage="update", masks=masks_batch, hidden_state=hidden_states_batch[0])
             actions_log_prob_batch = self.policy.get_actions_log_prob(actions_batch)
             value_batch = self.policy.evaluate(obs_batch, masks=masks_batch, hidden_state=hidden_states_batch[1])
             # Note: We only keep the entropy of the first augmentation (the original one)
