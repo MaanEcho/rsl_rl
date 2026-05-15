@@ -100,16 +100,12 @@ class ActorCriticDreamWaQV2(nn.Module):
                     setattr(self, f"critic_{key}_normalizer", EmpiricalNormalization(cenet_cfg["estimated_state_dims"][key]))
             self.critic_base_height_normalizer = EmpiricalNormalization(1)
             self.critic_feet_contact_forces_normalizer = EmpiricalNormalization(3 * 4)
-            self.critic_joint_accs_normalizer = EmpiricalNormalization(num_actions)
-            self.critic_joint_efforts_normalizer = EmpiricalNormalization(num_actions)
         else:
             self.critic_obs_normalizer = torch.nn.Identity()
             for key in cenet_cfg["estimated_state_dims"]:
                 setattr(self, f"critic_{key}_normalizer", torch.nn.Identity())
             self.critic_base_height_normalizer = torch.nn.Identity()
             self.critic_feet_contact_forces_normalizer = torch.nn.Identity()
-            self.critic_joint_accs_normalizer = torch.nn.Identity()
-            self.critic_joint_efforts_normalizer = torch.nn.Identity()
 
         # Action noise
         self.noise_std_type = noise_std_type
@@ -225,11 +221,9 @@ class ActorCriticDreamWaQV2(nn.Module):
             base_height_normalized = self.critic_base_height_normalizer(obs_list[1][:, 3:4])
             feet_clearances_normalized = self.critic_feet_clearances_normalizer(obs_list[1][:, 4:8])
             feet_contact_forces_normalized = self.critic_feet_contact_forces_normalizer(obs_list[1][:, 8:20])
-            others = obs_list[1][:, 20:20 + 4 + 1 + 1 + 3 + 3 + 8 + 4]
-            joint_accs_normalized = self.critic_joint_accs_normalizer(obs_list[1][:, -24:-12])
-            joint_efforts_normalized = self.critic_joint_efforts_normalizer(obs_list[1][:, -12:])
+            others = obs_list[1][:, 20:]
             height_scan = obs_list[2]
-            critic_obs = torch.cat((curr_obs_normalized, lin_vel_normalized, base_height_normalized, feet_clearances_normalized, feet_contact_forces_normalized, others, joint_accs_normalized, joint_efforts_normalized, height_scan), dim=-1)
+            critic_obs = torch.cat((curr_obs_normalized, lin_vel_normalized, base_height_normalized, feet_clearances_normalized, feet_contact_forces_normalized, others, height_scan), dim=-1)
         return self.critic(critic_obs)
 
     def get_actor_obs(self, obs: TensorDict, mode: Literal["current", "history", "all"]) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
