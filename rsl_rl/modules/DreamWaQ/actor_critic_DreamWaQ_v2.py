@@ -259,8 +259,6 @@ class ActorCriticDreamWaQV2(nn.Module):
             self.critic_base_height_normalizer.update(obs_list[1][:, 3:4])
             self.critic_feet_clearances_normalizer.update(obs_list[1][:, 4:8])
             self.critic_feet_contact_forces_normalizer.update(obs_list[1][:, 8:20])
-            self.critic_joint_accs_normalizer.update(obs_list[1][:, -24:-12])
-            self.critic_joint_efforts_normalizer.update(obs_list[1][:, -12:])
 
     def load_state_dict(self, state_dict: dict, strict: bool = True) -> bool:
         """Load the parameters of the actor-critic model.
